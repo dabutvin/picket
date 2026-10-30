@@ -32,8 +32,9 @@ Everything deploys and operates through GitHub Actions buttons; see
 your chosen FTP password / API token as repository secrets, run the **deploy**
 workflow, read `ReceiverIp` and `ApiUrl` from its summary, set up the camera
 and the app. The **ops** workflow gives you status, receiver start/stop and
-retries. The **app-build** workflow starts EAS builds once the one-time Apple
-signing setup is done.
+retries. The **app-build** workflow enrolls your iPhone, creates the iOS signing
+material through the App Store Connect API, and starts EAS builds. No computer
+anywhere.
 
 ## Getting started (terminal)
 

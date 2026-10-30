@@ -14,8 +14,10 @@ summary page. Credentials live in the repository's Actions secrets.
 | `PICKET_FTP_PASSWORD` | secret, optional | The password you'll type into the camera. Letters and digits, up to 64 chars. If unset, AWS generates one and you read it in the Secrets Manager console. |
 | `PICKET_API_TOKEN` | secret, optional | The bearer token you'll paste into the app's Settings. Same fallback as above. |
 | `EXPO_TOKEN` | secret | For app builds. expo.dev → account → Access tokens. |
+| `APPLE_TEAM_ID` | secret | developer.apple.com → Membership details (10 characters). |
+| `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | secret | An App Store Connect **Team** API key with the **Admin** role: App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → Generate. Paste the whole `.p8` file contents into `ASC_API_KEY_P8`; the Key ID is on that row, the Issuer ID at the top of the page. |
 
-Secrets only ever flow GitHub → AWS. No workflow prints a secret value.
+Secrets only ever flow GitHub → AWS / Expo / Apple. No workflow prints a secret value.
 
 ## Workflows
 
@@ -43,15 +45,24 @@ couple of minutes. Running it when nothing changed is harmless.
 
 ### `app-build`
 
-Starts an EAS Build and links to it in the summary. `preview` is the one to
-use: a standalone, internally distributed build you install from the EAS link
-(no dev server needed). `production` goes through TestFlight / the stores.
+Three actions, all without a computer or an Apple ID login:
+
+| action | what it does |
+|---|---|
+| `register-device` | starts an EAS workflow that pauses with a link. Open it on your iPhone, install the profile it offers, then approve the device on the run page. That's how EAS learns the phone's UDID. |
+| `devices` | lists the iPhones registered on EAS for your Apple team |
+| `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` makes an App Store profile instead, for TestFlight. Android needs none of this. |
+
+The signing material (private key, certificate, profile) lives in AWS Secrets
+Manager under `picket/apple-signing`, so every build reuses it; nothing is
+committed. The first `build` also links the Expo project and commits its id
+into `app/app.json`.
 
 ### `ci`
 
 Runs on every pull request and push to `main`: synth, tests, typechecks.
 
-## One-time setup checklist
+## One-time setup checklist (phone only)
 
 1. **AWS**: create the IAM user (or OIDC role), add the key secrets. Run
    `deploy`. Read `ReceiverIp` and `FtpUser` from the summary.
@@ -61,32 +72,37 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
    self-signed).
 3. **Adobe**: done. The Native App credential's client id, redirect URI and
    scopes are the defaults in `infra/bin/picket.ts`.
-4. **App**: see below; then Settings → `ApiUrl` + `PICKET_API_TOKEN` → Connect
+4. **Apple**: join the Apple Developer Program (developer.apple.com, works
+   from Safari on the phone), note the Team ID, create the App Store Connect
+   Team API key, add the four secrets above.
+5. **Expo**: create an account at expo.dev, make an access token, add
+   `EXPO_TOKEN`. No project needed; the first build creates it.
+6. **Phone enrollment**: `app-build → register-device`, follow the summary.
+7. **Build**: `app-build → build` (ios, preview). Open the build link on the
+   phone and tap Install. Settings → `ApiUrl` + `PICKET_API_TOKEN` → Connect
    Lightroom.
 
-## The app build, honestly
+## How the iOS signing works without a computer
 
-Everything on the AWS side is phone-only. The iOS build has one step that
-Expo requires to be done interactively, once:
+Expo's own tooling gets most of the way: EAS CLI accepts an App Store Connect
+API key in `--non-interactive` mode and can refresh an ad hoc profile with it.
+The one thing it refuses to do non-interactively is create the distribution
+certificate. Apple's API has no such restriction, so `apple-signing.mjs` does
+the whole chain itself (certificate, bundle id, devices, profile) and hands EAS
+a `credentials.json` with `credentialsSource: local`. Devices come from EAS's
+device list, filled by the `register-device` enrollment link.
 
-- Generating the iOS signing credentials (distribution certificate and
-  provisioning profile) requires an Apple Developer Program membership and an
-  Apple sign-in through the EAS CLI (`eas build -p ios --profile preview` on
-  any computer, answering the prompts). Expo's docs state both requirements, and
-  "Build from GitHub" additionally requires one successful build from a
-  computer before it will build from the repo.
-- Your iPhone must be registered for the ad-hoc profile. EAS gives you a link
-  to open on the phone for that (`eas device:create` → *Website*).
+Known limits:
 
-After that one session, `app-build` from GitHub (or "Build from GitHub" on
-expo.dev) does everything, and each finished build is an Install link on the
-phone. Before the first build, the Expo project id has to be in
-`app/app.json` under `expo.extra.eas.projectId` (create the project on
-expo.dev and paste the id).
-
-If you'd rather avoid Apple's developer program entirely, an Android phone can
-install the `preview` APK straight from the EAS link with no signing setup at
-all.
+- Apple allows two iOS Distribution certificates per team. If you already have
+  two (from Xcode, say), revoke one at developer.apple.com → Certificates.
+- Apple can take up to 72 hours to accept a newly registered device on a new
+  or just-renewed membership; the first build may fail with a device error
+  until then.
+- The App Store Connect key must be a **Team** key with **Admin** role;
+  app-scoped or Developer-role keys can't manage certificates.
+- An Android phone needs none of this: `app-build → build` with platform
+  `android` installs straight from the EAS link.
 
 ## Runbook
 
@@ -102,3 +118,9 @@ all.
   means set `LIGHTROOM_RAW_CONTENT_TYPE=application/octet-stream` as a
   repository variable, then `deploy`. Then `redrive-dlq`.
 - **Rotate the FTP password or API token**: change the secret, run `deploy`.
+- **New iPhone**: `app-build → register-device`, enroll, approve, then
+  `app-build → build`. The profile is recreated with the new device list.
+- **iOS build fails on signing**: the `iOS signing` step's summary shows which
+  Apple call failed. Certificate limit → revoke one at developer.apple.com.
+  Device not accepted → wait for Apple, retry. Key rejected → confirm it's a
+  Team key with Admin role.

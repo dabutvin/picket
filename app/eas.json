@@ -7,13 +7,13 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
-      "ios": { "image": "latest" },
+      "ios": { "image": "latest", "credentialsSource": "local" },
       "android": { "image": "latest", "buildType": "apk" }
     },
     "production": {
       "channel": "production",
       "autoIncrement": true,
-      "ios": { "image": "latest" },
+      "ios": { "image": "latest", "credentialsSource": "local" },
       "android": { "image": "latest" }
     }
   },

@@ -1,46 +1,163 @@
 name: app-build
 
-# Kicks off an EAS Build. One-time prerequisites (see docs/OPERATIONS.md):
-# an EAS project id in app/app.json, EXPO_TOKEN in secrets, and iOS signing
-# credentials already generated on EAS.
+# Phone-only app builds. No step needs a computer or an Apple ID login:
+#   register-device  → starts an EAS workflow that gives you a link to enroll your iPhone
+#   devices          → lists the iPhones registered on EAS for your Apple team
+#   build            → creates/reuses the iOS Distribution certificate + ad hoc profile through the
+#                      App Store Connect API (state kept in AWS Secrets Manager), then runs EAS Build
+# Secrets: EXPO_TOKEN, ASC_API_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID, APPLE_TEAM_ID, AWS creds. See docs/OPERATIONS.md.
 on:
   workflow_dispatch:
     inputs:
+      action:
+        type: choice
+        default: build
+        options: [build, register-device, devices]
       profile:
-        description: eas.json build profile
+        description: eas.json build profile (build only)
         type: choice
         default: preview
         options: [preview, production]
       platform:
+        description: build only
         type: choice
         default: ios
         options: [ios, android, all]
 
+permissions:
+  contents: write # commits the EAS project id into app/app.json the first time
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
 jobs:
-  build:
+  app:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: "app/package-lock.json" }
-      - name: Check EXPO_TOKEN
-        env: { T: "${{ secrets.EXPO_TOKEN }}" }
-        run: '[ -n "$T" ] || { echo "::error::Set EXPO_TOKEN in repository secrets (expo.dev → Access tokens)"; exit 1; }'
+      - name: Check secrets
+        env:
+          T: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          [ -n "$T" ] || { echo "::error::Set EXPO_TOKEN (expo.dev → Access tokens)"; exit 1; }
+          [ -n "$APPLE_TEAM_ID" ] || { echo "::error::Set APPLE_TEAM_ID (developer.apple.com → Membership details)"; exit 1; }
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
-        working-directory: app
-      - name: Start build
-        working-directory: app
+
+      - name: Link EAS project (first run only)
         run: |
           set -euo pipefail
-          eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --no-wait --json > build.json
+          if node -e 'const a=require("./app.json"); process.exit(a.expo?.extra?.eas?.projectId ? 0 : 1)'; then
+            echo "EAS project already linked"; exit 0
+          fi
+          account="$(eas whoami 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+          eas init --account "$account" --non-interactive --force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.json
+          git commit -m "chore(app): link EAS project" -m "Created by the app-build workflow."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Linked and committed the EAS project id." >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------ register-device
+      - name: Start device enrollment on EAS
+        if: inputs.action == 'register-device'
+        run: |
+          set -euo pipefail
+          eas workflow:run .eas/workflows/register-device.yml --non-interactive -F "team_id=$APPLE_TEAM_ID" 2>&1 | tee run.log
+          url="$(grep -oE 'https://expo\.dev/[^ ]*' run.log | head -n1 || true)"
+          {
+            echo "## Enroll your iPhone"
+            echo
+            echo "1. Open the workflow run${url:+: $url} on your iPhone (also under expo.dev → project → Workflows)."
+            echo "2. Tap the registration link / QR code, allow the profile download, then Settings → Profile Downloaded → Install."
+            echo "3. Back on the run page, approve the device."
+            echo
+            echo "Then run **app-build → build**. Apple can take up to 72 h to accept a device on a brand-new membership; if the build fails with a device error, try again later."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------ devices
+      - name: List registered devices
+        if: inputs.action == 'devices'
+        run: |
+          set -euo pipefail
+          eas device:list --apple-team-id "$APPLE_TEAM_ID" --json --non-interactive > devices.json || echo '[]' > devices.json
+          {
+            echo "## Devices registered on EAS for team $APPLE_TEAM_ID"
+            echo
+            node -e '
+              const raw = JSON.parse(require("fs").readFileSync("devices.json","utf8"));
+              const list = Array.isArray(raw) ? raw : raw.devices ?? raw.data ?? [];
+              if (!list.length) { console.log("_none yet: run the register-device action_"); }
+              else { console.log("| name | UDID | class |"); console.log("|---|---|---|"); for (const d of list) console.log(`| ${d.name ?? ""} | \`${d.identifier ?? d.udid}\` | ${d.deviceClass ?? ""} |`); }
+            '
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------ build
+      - name: Pick AWS credential mode
+        if: inputs.action == 'build' && inputs.platform != 'android'
+        id: mode
+        env:
+          ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -n "$ROLE" ]; then echo "mode=oidc" >> "$GITHUB_OUTPUT";
+          elif [ -n "$KEY" ]; then echo "mode=keys" >> "$GITHUB_OUTPUT";
+          else echo "::error::iOS signing state lives in AWS Secrets Manager; set the AWS secrets used by the deploy workflow"; exit 1; fi
+      - if: inputs.action == 'build' && inputs.platform != 'android' && steps.mode.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - if: inputs.action == 'build' && inputs.platform != 'android' && steps.mode.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: iOS signing via App Store Connect API
+        if: inputs.action == 'build' && inputs.platform != 'android'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_P8; do [ -n "${!v}" ] || { echo "::error::Set $v (App Store Connect → Users and Access → Integrations → Team Keys, role Admin)"; exit 1; }; done
+          eas device:list --apple-team-id "$APPLE_TEAM_ID" --json --non-interactive > devices.json || echo '[]' > devices.json
+          type=adhoc; [ "${{ inputs.profile }}" = "production" ] && type=appstore
+          DEVICES_JSON=devices.json node scripts/apple-signing.mjs ensure --type "$type" > signing.json
+          {
+            echo "## iOS signing"
+            echo '```json'; cat signing.json; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start EAS build
+        if: inputs.action == 'build'
+        run: |
+          set -euo pipefail
+          eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json > build.json
           {
             echo "## EAS build started (${{ inputs.platform }} / ${{ inputs.profile }})"
             echo
-            jq -r '.[] | "- \(.platform): [\(.id)](\(.artifacts.buildUrl // ("https://expo.dev/accounts/" + .project.ownerAccount.name + "/projects/" + .project.slug + "/builds/" + .id)))"' build.json
+            node -e '
+              const builds = JSON.parse(require("fs").readFileSync("build.json","utf8"));
+              for (const b of builds) {
+                const url = b.artifacts?.buildUrl ?? `https://expo.dev/accounts/${b.project?.ownerAccount?.name}/projects/${b.project?.slug}/builds/${b.id}`;
+                console.log(`- ${b.platform}: ${url}`);
+              }
+            '
             echo
-            echo "Open the link on your phone; when the build finishes, tap Install (internal distribution) or wait for TestFlight (production)."
+            echo "Open the link on your phone. When the build finishes: **Install** (preview) or wait for TestFlight (production)."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -15,8 +15,11 @@ npx eas-cli build --profile development --platform ios
 ```
 
 `eas.json` has `preview` (internal distribution, install from the EAS link) and `production`
-profiles; the `app-build` GitHub workflow starts them. See `docs/OPERATIONS.md` for the
-one-time Apple signing setup and the EAS project id.
+profiles with `credentialsSource: local`; `scripts/apple-signing.mjs` creates the certificate
+and provisioning profile through the App Store Connect API and the `app-build` GitHub
+workflow runs both. `.eas/workflows/register-device.yml` enrolls a phone via a link.
+`node scripts/apple-signing.mjs self-test` exercises the crypto/openssl parts offline.
+See `docs/OPERATIONS.md`.
 
 `src/lib/types.ts` mirrors `services/api/src/types.ts`; keep them in sync.
 
