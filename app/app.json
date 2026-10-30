@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Picket",
+    "slug": "picket",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0b0d",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.danbut.picket"
+    },
+    "android": {
+      "package": "com.danbut.picket",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0b0d",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "scheme": [
+      "picket",
+      "adobe+94690ff144227aa43751adfb4cb46fc1432adb0c"
+    ]
+  }
+}

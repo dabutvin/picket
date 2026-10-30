@@ -60,3 +60,20 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# --- Picket additions (Node, Python, CDK, Expo) ---
+node_modules/
+dist/
+.expo/
+.expo-shared/
+infra/cdk.out/
+infra/cdk.context.json
+*.tsbuildinfo
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+services/preview/tests/fixtures/*.ARW
+.env
+.env.*
+.DS_Store

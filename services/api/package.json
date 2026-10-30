@@ -1,0 +1,29 @@
+{
+  "name": "picket-api",
+  "version": "1.0.0",
+  "description": "Picket HTTP API Lambda handlers",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "esbuild src/handler.ts src/authorizer.ts --bundle --platform=node --target=node22 --format=esm --outdir=dist"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1160.0",
+    "@aws-sdk/client-s3": "^3.1160.0",
+    "@aws-sdk/client-secrets-manager": "^3.1160.0",
+    "@aws-sdk/client-sqs": "^3.1160.0",
+    "@aws-sdk/lib-dynamodb": "^3.1160.0",
+    "@aws-sdk/s3-request-presigner": "^3.1160.0",
+    "@aws-sdk/util-dynamodb": "^3.996.9"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "type": "module"
+}
