@@ -1,8 +1,11 @@
-import type { Photo, PhotoPage, PhotoStatus, RawUrl } from './types';
+import type { ConnectRequest, LightroomStatusView, Photo, PhotoPage, PhotoStatus, Stats } from './types';
 import type { Settings } from './settings';
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -10,7 +13,12 @@ export class ApiError extends Error {
 export interface Api {
   list(status: PhotoStatus, limit?: number, cursor?: string): Promise<PhotoPage>;
   decide(photoId: string, decision: PhotoStatus): Promise<Photo>;
-  rawUrl(photoId: string): Promise<RawUrl>;
+  retryLightroom(photoId: string): Promise<Photo>;
+  stats(): Promise<Stats>;
+  lightroom(): Promise<LightroomStatusView>;
+  connectLightroom(req: ConnectRequest): Promise<LightroomStatusView>;
+  refreshLightroom(): Promise<LightroomStatusView>;
+  disconnectLightroom(): Promise<LightroomStatusView>;
 }
 
 export function createApi({ apiUrl, token }: Settings): Api {
@@ -20,7 +28,7 @@ export function createApi({ apiUrl, token }: Settings): Api {
       headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) },
     });
     if (!res.ok) {
-      let message = res.statusText;
+      let message = res.statusText || `HTTP ${res.status}`;
       try {
         message = ((await res.json()) as { error?: string }).error ?? message;
       } catch {
@@ -31,20 +39,21 @@ export function createApi({ apiUrl, token }: Settings): Api {
     return (await res.json()) as T;
   }
 
+  const post = <T>(path: string, body?: unknown) =>
+    call<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+
   return {
     list(status, limit = 30, cursor) {
       const q = new URLSearchParams({ status, limit: String(limit) });
       if (cursor) q.set('cursor', cursor);
       return call<PhotoPage>(`/photos?${q}`);
     },
-    decide(photoId, decision) {
-      return call<Photo>(`/photos/${encodeURIComponent(photoId)}/decision`, {
-        method: 'POST',
-        body: JSON.stringify({ decision }),
-      });
-    },
-    rawUrl(photoId) {
-      return call<RawUrl>(`/photos/${encodeURIComponent(photoId)}/raw-url`);
-    },
+    decide: (photoId, decision) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/decision`, { decision }),
+    retryLightroom: (photoId) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/lightroom`),
+    stats: () => call<Stats>('/stats'),
+    lightroom: () => call<LightroomStatusView>('/lightroom'),
+    connectLightroom: (req) => post<LightroomStatusView>('/lightroom', req),
+    refreshLightroom: () => post<LightroomStatusView>('/lightroom/refresh'),
+    disconnectLightroom: () => call<LightroomStatusView>('/lightroom', { method: 'DELETE' }),
   };
 }

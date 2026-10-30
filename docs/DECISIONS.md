@@ -38,7 +38,7 @@ for the Lightroom hand-off. EAS builds for a device install.
 **Consequences.** One codebase also runs on Android and (for the review
 screen) in a browser. Native modules are limited to what Expo ships.
 
-## ADR-003: Picks reach Lightroom through the iOS share sheet first
+## ADR-003: Picks reach Lightroom through the iOS share sheet first (superseded by ADR-006)
 
 **Context.** Three ways to get an ARW into Lightroom:
 
@@ -54,9 +54,12 @@ screen) in a browser. Native modules are limited to what Expo ships.
    folder that Lightroom Classic auto-imports. Best for Classic users, no phone
    bandwidth, but needs a machine running.
 
-**Decision.** Ship (2) in v1. Add (3) as `tools/lightroom-sync` when someone
-needs Classic. Keep (1) as a stretch goal and request API access early since
-approval is the long pole.
+**Decision (original).** Ship (2) in v1. Add (3) as `tools/lightroom-sync` when
+someone needs Classic. Keep (1) as a stretch goal.
+
+**Superseded.** Two constraints surfaced after the first scaffold: the RAW files
+must never be on the phone, and Lightroom Classic is out. That rules out (2) and
+(3) outright. See ADR-006.
 
 ## ADR-004: Previews come from the embedded JPEG, not a RAW decode
 
@@ -76,3 +79,43 @@ prefixes in one bucket; the S3 → Lambda notification is filtered to `raw/` so
 writing previews cannot re-trigger the function. One table with a `byStatus`
 GSI covers the only query pattern (give me the next N unreviewed, oldest
 first).
+
+## ADR-006: Upload picks server-side with the Lightroom catalog API
+
+**Context.** Requirements: preview on the phone, RAW files never on the phone,
+picks land in the Lightroom *cloud* catalog, no Lightroom Classic. Every
+phone-side hand-off (share sheet, Photos Auto Add, Shortcuts) pulls the file
+onto the phone first. Lightroom desktop (cloud) has no watched folder. That
+leaves the catalog API at `lr.adobe.io`, which is partner-gated. Adobe's other
+"Lightroom API" (Firefly Services) is an unrelated, stateless image processor
+that reached end-of-life in July 2026 and never touched catalogs.
+
+**Unblocked by.** An "OAuth Native App" credential with Lightroom Services on the
+Adobe Developer Console, in development mode, with the Lightroom account added
+as a beta user. Enough for one user's own catalog.
+
+**Decision.**
+- The app runs Authorization Code + PKCE against Adobe IMS (public client, no
+  secret) with redirect `picket://oauth`, and immediately hands the tokens to the
+  backend. The backend stores them in Secrets Manager, refreshes them, and never
+  returns them.
+- A pick is a row-level state change (`lightroomStatus = queued`). The table
+  stream → router Lambda → SQS → uploader Lambda pipeline reacts to it. SQS gives
+  retries, a dead-letter queue, and serialization (uploader concurrency 1).
+- The uploader follows Adobe's documented flow: create asset with
+  `importedOnDevice = <API key>` and the file's SHA-256, PUT the master in one
+  request, add to a project album named "Picket" with our `photoId` as
+  `remoteId`. 412 means Lightroom already has those bytes; recorded as
+  `duplicate`, not an error.
+- `lightroomStatus` is separate from `status`. Un-picking after upload does not
+  delete anything in Lightroom.
+
+**Consequences.** The phone only ever sees JPEG previews. Delivery is a few
+seconds after the swipe and survives the phone going offline. We depend on
+Adobe keeping the credential enabled; development mode caps who can log in
+(fine for one photographer). The `raw-url` endpoint stays for debugging only.
+
+**Open items to confirm on the first real upload.** The exact IMS scope names
+the console lists for Lightroom Services (defaults in `infra/bin/picket.ts`), and
+the `Content-Type` Lightroom accepts for `.ARW` masters (`image/x-sony-arw` by
+default; `LIGHTROOM_RAW_CONTENT_TYPE` overrides it if Adobe answers 415).

@@ -11,9 +11,14 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
+import type { LightroomSettings } from './lightroom';
+
 export interface ApiProps {
   bucket: s3.IBucket;
   table: dynamodb.ITable;
+  lightroom: LightroomSettings;
+  /** Secret holding the user's Lightroom tokens (owned by the Lightroom construct). */
+  lightroomConnection: secretsmanager.ISecret;
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -68,11 +73,18 @@ export class Api extends Construct {
         PHOTOS_TABLE: props.table.tableName,
         PHOTOS_BUCKET: props.bucket.bucketName,
         STATUS_INDEX: 'byStatus',
+        LIGHTROOM_INDEX: 'byLightroomStatus',
+        LIGHTROOM_SECRET_ARN: props.lightroomConnection.secretArn,
+        LIGHTROOM_CLIENT_ID: props.lightroom.clientId,
+        LIGHTROOM_SCOPES: props.lightroom.scopes.join(','),
+        LIGHTROOM_ALBUM_NAME: props.lightroom.albumName,
       },
       description: 'Picket: photos API',
     });
     props.table.grantReadWriteData(apiFn);
     props.bucket.grantRead(apiFn);
+    props.lightroomConnection.grantRead(apiFn);
+    props.lightroomConnection.grantWrite(apiFn);
 
     const authorizer = new HttpLambdaAuthorizer('Bearer', authorizerFn, {
       responseTypes: [HttpLambdaResponseType.SIMPLE],
@@ -85,7 +97,7 @@ export class Api extends Construct {
       defaultAuthorizer: authorizer,
       corsPreflight: {
         allowOrigins: ['*'],
-        allowMethods: [apigw.CorsHttpMethod.GET, apigw.CorsHttpMethod.POST, apigw.CorsHttpMethod.OPTIONS],
+        allowMethods: [apigw.CorsHttpMethod.GET, apigw.CorsHttpMethod.POST, apigw.CorsHttpMethod.DELETE, apigw.CorsHttpMethod.OPTIONS],
         allowHeaders: ['Authorization', 'Content-Type'],
         maxAge: cdk.Duration.hours(1),
       },
@@ -95,6 +107,10 @@ export class Api extends Construct {
     http.addRoutes({ path: '/photos', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/photos/{id}/decision', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/photos/{id}/raw-url', methods: [apigw.HttpMethod.GET], integration });
+    http.addRoutes({ path: '/photos/{id}/lightroom', methods: [apigw.HttpMethod.POST], integration });
+    http.addRoutes({ path: '/stats', methods: [apigw.HttpMethod.GET], integration });
+    http.addRoutes({ path: '/lightroom', methods: [apigw.HttpMethod.GET, apigw.HttpMethod.POST, apigw.HttpMethod.DELETE], integration });
+    http.addRoutes({ path: '/lightroom/refresh', methods: [apigw.HttpMethod.POST], integration });
 
     this.url = http.apiEndpoint;
   }

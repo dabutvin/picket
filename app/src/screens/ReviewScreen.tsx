@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import type { Api } from '../lib/api';
-import type { Photo } from '../lib/types';
+import type { Photo, Stats } from '../lib/types';
 import { colors } from '../lib/theme';
 import { Button } from '../components/Button';
 import { SwipeCard, type Decision } from '../components/SwipeCard';
@@ -19,6 +19,7 @@ export function ReviewScreen({ api }: { api: Api }) {
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<{ photo: Photo; decision: Decision } | null>(null);
   const [decided, setDecided] = useState(0);
+  const [stats, setStats] = useState<Stats | null>(null);
   const command = useRef<((d: Decision) => void) | null>(null);
   const loadingRef = useRef(false);
 
@@ -50,6 +51,12 @@ export function ReviewScreen({ api }: { api: Api }) {
     void loadMore(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
+
+  // Lifetime counts, refreshed every 10 decisions and on load.
+  useEffect(() => {
+    if (decided % 10 !== 0) return;
+    api.stats().then(setStats, () => undefined);
+  }, [api, decided]);
 
   useEffect(() => {
     if (queue.length < REFILL_AT && !exhausted) void loadMore();
@@ -92,7 +99,8 @@ export function ReviewScreen({ api }: { api: Api }) {
         <Text style={styles.title}>Review</Text>
         <Text style={styles.count}>
           {queue.length}
-          {exhausted ? '' : '+'} left · {decided} done
+          {exhausted ? '' : '+'} left · {decided} this session
+          {stats ? ` · ${stats.photos.pick} picks · ${stats.lightroom.done + stats.lightroom.duplicate} in Lightroom` : ''}
         </Text>
       </View>
 

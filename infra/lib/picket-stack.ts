@@ -4,13 +4,18 @@ import { Storage } from './storage';
 import { Receiver } from './receiver';
 import { Processing } from './processing';
 import { Api } from './api';
+import { Lightroom, type LightroomSettings } from './lightroom';
+
+export interface PicketStackProps extends cdk.StackProps {
+  lightroom: LightroomSettings;
+}
 
 /**
  * Everything Picket needs, in one stack. Constructs are split by stage so each
  * one reads like the matching section of docs/ARCHITECTURE.md.
  */
 export class PicketStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: PicketStackProps) {
     super(scope, id, props);
 
     const storage = new Storage(this, 'Storage');
@@ -26,9 +31,17 @@ export class PicketStack extends cdk.Stack {
       rawPrefix: storage.rawPrefix,
     });
 
+    const lightroom = new Lightroom(this, 'Lightroom', {
+      bucket: storage.bucket,
+      table: storage.table,
+      settings: props.lightroom,
+    });
+
     const api = new Api(this, 'Api', {
       bucket: storage.bucket,
       table: storage.table,
+      lightroom: props.lightroom,
+      lightroomConnection: lightroom.connection,
     });
 
     new cdk.CfnOutput(this, 'Bucket', { value: storage.bucket.bucketName });
@@ -46,6 +59,13 @@ export class PicketStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ApiTokenSecret', {
       value: api.token.secretName,
       description: 'Bearer token for the app. Paste into the app Settings screen.',
+    });
+    new cdk.CfnOutput(this, 'LightroomClientId', {
+      value: props.lightroom.clientId || '(not set: pass -c lightroomClientId=... or LIGHTROOM_CLIENT_ID)',
+    });
+    new cdk.CfnOutput(this, 'LightroomRedirectUri', {
+      value: 'picket://oauth',
+      description: 'Add this redirect URI to the Adobe Developer Console native-app credential',
     });
   }
 }

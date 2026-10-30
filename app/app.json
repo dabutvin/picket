@@ -9,10 +9,7 @@
     "backgroundColor": "#0b0b0d",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.danbut.picket",
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Not used; picks go to Lightroom through the share sheet."
-      }
+      "bundleIdentifier": "com.danbut.picket"
     },
     "android": {
       "package": "com.danbut.picket",
@@ -27,6 +24,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "scheme": "picket"
   }
 }

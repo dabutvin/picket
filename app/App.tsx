@@ -8,12 +8,14 @@ import { loadSettings, type Settings } from './src/lib/settings';
 import { createApi } from './src/lib/api';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
+import { SkippedScreen } from './src/screens/SkippedScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
-type Tab = 'review' | 'picks' | 'settings';
+type Tab = 'review' | 'picks' | 'skipped' | 'settings';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'review', label: 'Review' },
   { key: 'picks', label: 'Picks' },
+  { key: 'skipped', label: 'Skipped' },
   { key: 'settings', label: 'Settings' },
 ];
 
@@ -39,9 +41,12 @@ export default function App() {
             <ReviewScreen api={api} />
           ) : activeTab === 'picks' && api ? (
             <PicksScreen api={api} />
+          ) : activeTab === 'skipped' && api ? (
+            <SkippedScreen api={api} />
           ) : (
             <SettingsScreen
               initial={settings}
+              api={api}
               onSaved={(s) => {
                 setSettings(s);
                 if (s) setTab('review');

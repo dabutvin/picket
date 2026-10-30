@@ -2,18 +2,26 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { PhotoItem, PhotoStatus } from './types.js';
+import type { LightroomInfo, LightroomStatus, PhotoItem, PhotoStatus } from './types.js';
 
 export interface Store {
   listByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<{ items: PhotoItem[]; cursor?: string }>;
   get(photoId: string): Promise<PhotoItem | undefined>;
+  /** Flip the review decision. A first-time pick is also queued for Lightroom. */
   setStatus(photoId: string, status: PhotoStatus): Promise<PhotoItem | undefined>;
+  /** Record progress of the Lightroom upload. */
+  setLightroom(photoId: string, info: LightroomInfo): Promise<PhotoItem | undefined>;
+  /** Put a pick back on the Lightroom queue (retry after a failure). */
+  requeueLightroom(photoId: string): Promise<PhotoItem | undefined>;
+  countByStatus(status: PhotoStatus): Promise<number>;
+  countByLightroomStatus(status: LightroomStatus): Promise<number>;
   signGet(key: string, expiresInSeconds: number, downloadAs?: string): Promise<string>;
 }
 
 export interface StoreConfig {
   tableName: string;
   statusIndex: string;
+  lightroomIndex: string;
   bucket: string;
 }
 
@@ -37,11 +45,62 @@ export class BadCursor extends Error {
   }
 }
 
+export const queuedInfo = (now = new Date()): LightroomInfo => ({ status: 'queued', updatedAt: now.toISOString() });
+
+const isConditionFailure = (err: unknown) => (err as { name?: string }).name === 'ConditionalCheckFailedException';
+
 export function createStore(cfg: StoreConfig): Store {
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
   const s3 = new S3Client({});
+
+  async function update(
+    photoId: string,
+    expr: string,
+    names: Record<string, string>,
+    values: Record<string, unknown>,
+    condition = 'attribute_exists(photoId)',
+  ): Promise<PhotoItem | undefined> {
+    try {
+      const res = await ddb.send(
+        new UpdateCommand({
+          TableName: cfg.tableName,
+          Key: { photoId },
+          ConditionExpression: condition,
+          UpdateExpression: expr,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: 'ALL_NEW',
+        }),
+      );
+      return res.Attributes as PhotoItem;
+    } catch (err) {
+      if (isConditionFailure(err)) return undefined;
+      throw err;
+    }
+  }
+
+  async function count(index: string, attr: string, value: string): Promise<number> {
+    let total = 0;
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await ddb.send(
+        new QueryCommand({
+          TableName: cfg.tableName,
+          IndexName: index,
+          KeyConditionExpression: '#k = :v',
+          ExpressionAttributeNames: { '#k': attr },
+          ExpressionAttributeValues: { ':v': value },
+          Select: 'COUNT',
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      total += res.Count ?? 0;
+      startKey = res.LastEvaluatedKey;
+    } while (startKey);
+    return total;
+  }
 
   return {
     async listByStatus(status, limit, cursor) {
@@ -65,25 +124,38 @@ export function createStore(cfg: StoreConfig): Store {
       return res.Item as PhotoItem | undefined;
     },
 
-    async setStatus(photoId, status) {
-      try {
-        const res = await ddb.send(
-          new UpdateCommand({
-            TableName: cfg.tableName,
-            Key: { photoId },
-            ConditionExpression: 'attribute_exists(photoId)',
-            UpdateExpression: 'SET #s = :s, decidedAt = :t',
-            ExpressionAttributeNames: { '#s': 'status' },
-            ExpressionAttributeValues: { ':s': status, ':t': new Date().toISOString() },
-            ReturnValues: 'ALL_NEW',
-          }),
+    setStatus(photoId, status) {
+      const now = new Date();
+      if (status === 'pick') {
+        // if_not_exists: a photo that already went to Lightroom (or failed) keeps its record;
+        // failures are retried explicitly through requeueLightroom.
+        return update(
+          photoId,
+          'SET #s = :s, decidedAt = :t, lightroomStatus = if_not_exists(lightroomStatus, :q), lightroom = if_not_exists(lightroom, :lr)',
+          { '#s': 'status' },
+          { ':s': status, ':t': now.toISOString(), ':q': 'queued', ':lr': queuedInfo(now) },
         );
-        return res.Attributes as PhotoItem;
-      } catch (err) {
-        if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return undefined;
-        throw err;
       }
+      return update(photoId, 'SET #s = :s, decidedAt = :t', { '#s': 'status' }, { ':s': status, ':t': now.toISOString() });
     },
+
+    setLightroom(photoId, info) {
+      return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr', {}, { ':st': info.status, ':lr': info });
+    },
+
+    requeueLightroom(photoId) {
+      const info = queuedInfo();
+      return update(
+        photoId,
+        'SET lightroomStatus = :st, lightroom = :lr',
+        { '#s': 'status' },
+        { ':st': info.status, ':lr': info, ':pick': 'pick' },
+        'attribute_exists(photoId) AND #s = :pick',
+      );
+    },
+
+    countByStatus: (status) => count(cfg.statusIndex, 'status', status),
+    countByLightroomStatus: (status) => count(cfg.lightroomIndex, 'lightroomStatus', status),
 
     signGet(key, expiresInSeconds, downloadAs) {
       return getSignedUrl(

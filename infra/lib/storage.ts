@@ -50,6 +50,8 @@ export class Storage extends Construct {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      // Picks flow to the Lightroom uploader through this stream (see lib/lightroom.ts).
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
     // The only query the app makes: next N photos with a given status, oldest first.
@@ -58,6 +60,14 @@ export class Storage extends Construct {
       partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'capturedAt', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Sparse index: only rows that have been queued for Lightroom carry lightroomStatus.
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'byLightroomStatus',
+      partitionKey: { name: 'lightroomStatus', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'decidedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
     });
   }
 }

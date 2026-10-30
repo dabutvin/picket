@@ -1,7 +1,8 @@
 # Picket architecture
 
 Picket moves RAW photos from a Sony a7C II to AWS wirelessly, lets you swipe
-through them on your phone to pick keepers, and hands the picks to Lightroom.
+through them on your phone to pick keepers, and uploads the picks straight from
+S3 into your Lightroom cloud catalog. The RAW files never touch the phone.
 
 ```
  Sony a7C II ──FTPES (FTP over TLS)──▶ Receiver (EC2, pure-ftpd) ──aws s3 mv──▶ S3  raw/
@@ -15,12 +16,15 @@ through them on your phone to pick keepers, and hands the picks to Lightroom.
                                             ▼                                                ▼
                                     S3 previews/ thumbs/                           DynamoDB Photos table
                                                                                    (status = unreviewed)
-                                                                                                 ▲
-                   Expo app (iOS)  ◀──HTTPS + bearer token──▶  HTTP API + Lambda  ─────────────────┘
-                   swipe left = reject                        GET  /photos?status=
-                   swipe right = pick                         POST /photos/{id}/decision
-                   "Send to Lightroom" ──share sheet──▶        GET  /photos/{id}/raw-url (presigned)
-                           Lightroom mobile ("Add to Lightroom")
+                                                                                        ▲        │ stream
+                   Expo app (iOS)  ◀──HTTPS + bearer token──▶  HTTP API + Lambda  ──────┘        ▼
+                   swipe left  = reject                        GET  /photos?status=        Lambda: router
+                   swipe right = pick  → lightroomStatus=queued POST /photos/{id}/decision  (lightroomStatus → queued)
+                   "Connect Lightroom" (OAuth PKCE, once)      POST /lightroom  (stores tokens)     │ SQS
+                                                                                                    ▼
+                                                                                          Lambda: uploader
+                                                                                S3 raw/ ──▶ lr.adobe.io catalog
+                                                                                           ("Picket" project album)
 ```
 
 ## Stages
@@ -65,14 +69,36 @@ but keeps an existing decision.
 left = reject. Each decision is posted immediately and optimistic; the deck
 pre-fetches the next previews. The Picks screen lists `pick` photos.
 
-### 4. Picks → Lightroom
+### 4. Picks → Lightroom cloud
 
-v1 uses the iOS share sheet: the app downloads the RAW via a presigned URL to
-the app cache and opens the share sheet; Lightroom mobile's "Add to Lightroom"
-extension imports the ARW into the cloud catalog, which syncs to Lightroom
-desktop. No Adobe API approval needed. See ADR-003 for the alternatives
-(a desktop watched-folder sync for Lightroom Classic, and the Lightroom cloud
-API).
+Server-side, through the Lightroom (catalog) API at `https://lr.adobe.io`
+(ADR-006). Once, in Settings, you tap **Connect Lightroom**: the app runs an
+OAuth Authorization Code + PKCE flow against Adobe IMS with the project's
+"OAuth Native App" client id, then hands the resulting tokens to
+`POST /lightroom`. The API verifies the account is entitled (`GET /v2/account`,
+status `subscriber` or `trial`), fetches the catalog id (`GET /v2/catalog`), and
+stores everything in one Secrets Manager secret. The phone keeps nothing.
+
+From then on a swipe right does this:
+
+1. `POST /photos/{id}/decision {pick}` sets `status = pick` and, the first time,
+   `lightroomStatus = queued`.
+2. The Photos table stream (filtered to `lightroomStatus = queued`) invokes the
+   **router** Lambda, which drops `{photoId}` on an SQS queue.
+3. The **uploader** Lambda (concurrency 1, batch size 1) loads the row, refreshes
+   the access token if needed, makes sure a project album named "Picket" exists,
+   downloads the ARW from S3, computes its SHA-256, and calls
+   `PUT /v2/catalogs/{catalog}/assets/{asset}` then
+   `PUT …/assets/{asset}/master` (one request; a7C II files are far under the
+   200 MB per-call limit), then adds the asset to the album with our `photoId`
+   as `remoteId`.
+4. The row ends as `lightroomStatus = done` (or `duplicate` if Lightroom already
+   had the same bytes, HTTP 412). Transient errors (429, 5xx) go back on the
+   queue up to 6 times, then to a dead-letter queue; permanent ones (413 storage
+   full, 415 content type, 4xx auth) are recorded as `failed` with the message.
+   **Retry upload** in the app re-queues a failed pick.
+
+The "Picket" album shows up in Lightroom's Connections panel on every device.
 
 ## Data model
 
@@ -92,9 +118,17 @@ DynamoDB table `Photos` (on-demand):
 | `camera`, `lens`, `iso`, `shutter`, `aperture` | S | from EXIF, best-effort        |
 | `uploadedAt` | S    | S3 event time                                                |
 | `decidedAt`  | S    | set when status changes                                      |
+| `lightroomStatus` | S | `queued` \| `uploading` \| `done` \| `duplicate` \| `failed`; absent until first picked |
+| `lightroom`  | M    | `{ status, updatedAt, assetId?, albumId?, error?, attempts? }` |
 
-GSI `byStatus`: PK `status`, SK `capturedAt`. That is the only query the app
-makes.
+Review decisions and Lightroom delivery are deliberately separate fields:
+"picked" and "in Lightroom" are different questions. Rejecting is a label, not a
+delete; the RAW stays in S3.
+
+GSIs: `byStatus` (PK `status`, SK `capturedAt`) drives the swipe and grid
+screens; `byLightroomStatus` (PK `lightroomStatus`, SK `decidedAt`, keys only)
+drives counts and "what failed". The table streams `NEW_AND_OLD_IMAGES` to the
+router.
 
 ## API
 
@@ -105,8 +139,16 @@ Manager and is checked by a Lambda authorizer. Single user for now.
 | method | path                        | body / query                        | returns |
 |--------|-----------------------------|-------------------------------------|---------|
 | GET    | `/photos`                   | `status` (default `unreviewed`), `limit` (≤100), `cursor` | `{ items: Photo[], cursor? }` with `previewUrl`/`thumbUrl` presigned (1 h) |
-| POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo` |
-| GET    | `/photos/{id}/raw-url`      |                                     | `{ url, fileName, bytes }` presigned GET (15 min) |
+| POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo`; a first-time pick is queued for Lightroom |
+| POST   | `/photos/{id}/lightroom`    |                                     | re-queues a failed pick (409 if not a pick) |
+| GET    | `/photos/{id}/raw-url`      |                                     | `{ url, fileName, bytes }` presigned GET (15 min); kept for debugging |
+| GET    | `/stats`                    |                                     | `{ photos: {unreviewed, pick, reject}, lightroom: {queued, uploading, done, duplicate, failed} }` |
+| GET    | `/lightroom`                |                                     | connection view + OAuth config (`clientId`, `scopes`, endpoints) for the app |
+| POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
+| POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
+| DELETE | `/lightroom`                |                                     | forgets the tokens |
+
+Tokens never come back out of the API.
 
 ## Repo layout
 
@@ -115,8 +157,8 @@ docs/            architecture, ADRs, camera setup
 infra/           AWS CDK (TypeScript). One stack: PicketStack
 infra/ingest/    cloud-init + upload hook for the FTPS receiver
 services/preview Python Lambda: ARW → previews + DynamoDB
-services/api     TypeScript Lambda: HTTP API handlers + authorizer
-app/             Expo app (swipe review, picks, send to Lightroom)
+services/api     TypeScript Lambdas: HTTP API + authorizer, stream router, Lightroom uploader
+app/             Expo app (swipe review, picks, skipped, connect Lightroom)
 ```
 
 ## Costs (us-east-1, rough, per month)
@@ -127,15 +169,17 @@ app/             Expo app (swipe review, picks, send to Lightroom)
 | public IPv4 (Elastic IP)               | ~$3.65 |
 | 8 GB gp3 root volume                   | ~$0.65 |
 | S3 standard, 50 GB of RAW              | ~$1.15 |
-| Lambda, DynamoDB, API Gateway at hobby volume | <$1 |
+| Lambda, DynamoDB, SQS, API Gateway at hobby volume | <$1 |
+| Secrets Manager, 3 secrets                | ~$1.20 |
 
 Stop the receiver instance when not travelling to save the compute line; the
 Elastic IP keeps costing while allocated.
 
 ## Not in scope yet
 
-- Multiple users / Cognito.
-- Lightroom cloud API upload (needs Adobe partner approval, see ADR-003).
+- Multiple users / Cognito. One Adobe account, one Lightroom connection.
+- Production Adobe approval: the OAuth credential is in development mode, which
+  limits logins to the beta users listed in the Developer Console.
 - Burst de-duplication, auto culling, face/focus heuristics.
 - Video (the camera can FTP movies too; they'd land in `raw/` and the preview
   Lambda currently skips non-ARW keys).

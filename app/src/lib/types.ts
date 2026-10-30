@@ -1,5 +1,15 @@
 // Mirror of services/api/src/types.ts (the app can't import across packages under Metro).
 export type PhotoStatus = 'unreviewed' | 'pick' | 'reject';
+export type LightroomStatus = 'queued' | 'uploading' | 'done' | 'duplicate' | 'failed';
+
+export interface LightroomInfo {
+  status: LightroomStatus;
+  updatedAt: string;
+  assetId?: string;
+  albumId?: string;
+  error?: string;
+  attempts?: number;
+}
 
 export interface Photo {
   photoId: string;
@@ -21,6 +31,8 @@ export interface Photo {
   iso?: string;
   shutter?: string;
   aperture?: string;
+  lightroomStatus?: LightroomStatus;
+  lightroom?: LightroomInfo;
 }
 
 export interface PhotoPage {
@@ -28,9 +40,24 @@ export interface PhotoPage {
   cursor?: string;
 }
 
-export interface RawUrl {
-  url: string;
-  fileName: string;
-  bytes?: number;
-  expiresInSeconds: number;
+export interface Stats {
+  photos: Record<PhotoStatus, number>;
+  lightroom: Record<LightroomStatus, number>;
+}
+
+export interface LightroomStatusView {
+  connected: boolean;
+  email?: string;
+  catalogId?: string;
+  albumId?: string;
+  albumName: string;
+  storage?: { used: number; limit: number };
+  connectedAt?: string;
+  oauth: { clientId: string; scopes: string[]; authorizeUrl: string; tokenUrl: string };
+}
+
+export interface ConnectRequest {
+  refreshToken: string;
+  accessToken?: string;
+  expiresIn?: number;
 }
