@@ -1,0 +1,5 @@
+# Runtime deps for the preview-extractor Lambda (boto3 is provided by the runtime).
+rawpy==0.25.1
+numpy==2.2.6
+pillow==12.2.0
+exifread==3.5.1
