@@ -28,12 +28,16 @@ grows beyond one photographer.
 ## ADR-002: Expo (React Native) for the swipe app
 
 **Context.** The repo was created with an Xcode `.gitignore`, so a native
-SwiftUI app was on the table. The swipe UI is small, the heavy lifting is in
-AWS, and the only platform-specific need is the iOS share sheet into Lightroom.
+SwiftUI app was on the table. The swipe UI is small and the heavy lifting is in
+AWS. Since ADR-006 the only platform-specific need is catching Adobe's OAuth
+redirect (a custom URL scheme); the phone never handles a RAW file.
 
 **Decision.** Expo with TypeScript, `react-native-gesture-handler` +
-`react-native-reanimated` for the deck, `expo-file-system` + `expo-sharing`
-for the Lightroom hand-off. EAS builds for a device install.
+`react-native-reanimated` for the deck, `expo-auth-session` +
+`expo-web-browser` for the Adobe login, `expo-secure-store` for the API token.
+EAS development builds for a device install (Expo Go can't register the Adobe
+scheme). Reaffirmed after ADR-006: SwiftUI was offered as the alternative and
+declined.
 
 **Consequences.** One codebase also runs on Android and (for the review
 screen) in a browser. Native modules are limited to what Expo ships.
@@ -115,7 +119,8 @@ as a beta user. Enough for one user's own catalog.
 **Consequences.** The phone only ever sees JPEG previews. Delivery is a few
 seconds after the swipe and survives the phone going offline. We depend on
 Adobe keeping the credential enabled; development mode caps who can log in
-(fine for one photographer). The `raw-url` endpoint stays for debugging only.
+(fine for one photographer). There is deliberately no API route that hands out
+a RAW download URL; the API role can only presign `previews/` and `thumbs/`.
 
 **Confirmed from the console.** Scopes are `lr_partner_apis, AdobeID,
 lr_partner_rendition_apis, openid, offline_access`; client id and redirect URI

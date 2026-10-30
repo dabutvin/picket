@@ -10,8 +10,11 @@ Expo SDK 58, TypeScript. Three screens behind a plain tab bar:
 ```bash
 npm install
 npm run typecheck
-npx expo start                      # Review/Picks/Skipped work in Expo Go; Connect Lightroom needs a dev build (picket:// scheme)
+npx expo start                      # Review/Picks/Skipped work in Expo Go; Connect Lightroom needs a dev build (adobe+… scheme)
 npx eas-cli build --profile development --platform ios
 ```
 
 `src/lib/types.ts` mirrors `services/api/src/types.ts`; keep them in sync.
+
+Naming: the API's `reject` status is shown as “Skip”/“Skipped” in the UI, since
+nothing is deleted and any skip can become a pick later.

@@ -29,7 +29,7 @@ export const fakeStore = (): Store => ({
   requeueLightroom: vi.fn(async (id) => (id === 'a' ? item('a', 'pick', { lightroomStatus: 'queued' }) : undefined)),
   countByStatus: vi.fn(async (status: PhotoStatus) => ({ unreviewed: 5, pick: 2, reject: 7 })[status]),
   countByLightroomStatus: vi.fn(async (status: LightroomStatus) => ({ queued: 1, uploading: 0, done: 1, duplicate: 0, failed: 0 })[status]),
-  signGet: vi.fn(async (key, ttl, downloadAs) => `https://s3/${key}?ttl=${ttl}${downloadAs ? `&dl=${downloadAs}` : ''}`),
+  signGet: vi.fn(async (key, ttl) => `https://s3/${key}?ttl=${ttl}`),
 });
 
 export const connection = (extra: Partial<LightroomConnection> = {}): LightroomConnection => ({

@@ -1,4 +1,4 @@
-import { AuthRequest, CodeChallengeMethod, ResponseType, exchangeCodeAsync, makeRedirectUri } from 'expo-auth-session';
+import { AuthRequest, CodeChallengeMethod, ResponseType, exchangeCodeAsync } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import type { ConnectRequest, LightroomStatusView } from './types';
 
@@ -6,11 +6,8 @@ WebBrowser.maybeCompleteAuthSession();
 
 /**
  * Adobe fixes the redirect for Native App credentials to adobe+<hash>://adobeid/<clientId>.
- * The backend tells us the exact value; that scheme is registered in app.json. The
- * picket:// fallback only exists for local experiments.
+ * The backend serves the exact value; its scheme must be listed under expo.scheme in app.json.
  */
-export const redirectUriFor = (oauth: LightroomStatusView['oauth']): string =>
-  oauth.redirectUri || makeRedirectUri({ scheme: 'picket', path: 'oauth' });
 
 export type AdobeLoginResult = { type: 'success'; tokens: ConnectRequest } | { type: 'cancel' } | { type: 'error'; message: string };
 
@@ -20,8 +17,9 @@ export type AdobeLoginResult = { type: 'success'; tokens: ConnectRequest } | { t
  */
 export async function loginToAdobe(oauth: LightroomStatusView['oauth']): Promise<AdobeLoginResult> {
   if (!oauth.clientId) return { type: 'error', message: 'The server has no Lightroom client id configured.' };
+  if (!oauth.redirectUri) return { type: 'error', message: 'The server has no Lightroom redirect URI configured.' };
 
-  const redirectUri = redirectUriFor(oauth);
+  const redirectUri = oauth.redirectUri;
   const request = new AuthRequest({
     clientId: oauth.clientId,
     scopes: oauth.scopes,

@@ -66,8 +66,11 @@ but keeps an existing decision.
 
 `app/` is an Expo (React Native, TypeScript) app. The Review screen loads
 `unreviewed` photos oldest-first and shows a swipe deck. Right = pick,
-left = reject. Each decision is posted immediately and optimistic; the deck
-pre-fetches the next previews. The Picks screen lists `pick` photos.
+left = reject (shown as "Skip"). Each decision is posted immediately and
+optimistic; the deck pre-fetches the next previews, and Undo puts the last card
+back. The Picks screen lists `pick` photos with their Lightroom state; the
+Skipped screen lists `reject` photos so any skip can become a pick later.
+Nothing is ever deleted from S3 by a swipe.
 
 ### 4. Picks → Lightroom cloud
 
@@ -142,14 +145,14 @@ Manager and is checked by a Lambda authorizer. Single user for now.
 | GET    | `/photos`                   | `status` (default `unreviewed`), `limit` (≤100), `cursor` | `{ items: Photo[], cursor? }` with `previewUrl`/`thumbUrl` presigned (1 h) |
 | POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo`; a first-time pick is queued for Lightroom |
 | POST   | `/photos/{id}/lightroom`    |                                     | re-queues a failed pick (409 if not a pick) |
-| GET    | `/photos/{id}/raw-url`      |                                     | `{ url, fileName, bytes }` presigned GET (15 min); kept for debugging |
 | GET    | `/stats`                    |                                     | `{ photos: {unreviewed, pick, reject}, lightroom: {queued, uploading, done, duplicate, failed} }` |
 | GET    | `/lightroom`                |                                     | connection view + OAuth config (`clientId`, `scopes`, endpoints) for the app |
 | POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
 | POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
 | DELETE | `/lightroom`                |                                     | forgets the tokens |
 
-Tokens never come back out of the API.
+Tokens never come back out of the API, and there is no route that presigns a
+RAW: the API role can only read `previews/` and `thumbs/`.
 
 ## Repo layout
 

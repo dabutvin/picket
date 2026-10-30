@@ -13,12 +13,10 @@ import {
   type PhotoItem,
   type PhotoPage,
   type PhotoStatus,
-  type RawUrl,
   type Stats,
 } from './types.js';
 
 export const PREVIEW_URL_TTL = 60 * 60; // 1 h: enough for a review session
-export const RAW_URL_TTL = 15 * 60; // 15 min
 export const DEFAULT_LIMIT = 30;
 export const MAX_LIMIT = 100;
 
@@ -93,20 +91,6 @@ export function createApp({ store, connections, lightroom, fetchFn = fetch }: Ap
     const updated = await store.setStatus(id, body.decision);
     if (!updated) return error(404, 'photo not found');
     return json(200, await withUrls(updated));
-  }
-
-  async function rawUrl(event: APIGatewayProxyEventV2): Promise<Result> {
-    const id = event.pathParameters?.id;
-    if (!id) return error(400, 'missing id');
-    const item = await store.get(id);
-    if (!item) return error(404, 'photo not found');
-    const body: RawUrl = {
-      url: await store.signGet(item.rawKey, RAW_URL_TTL, item.fileName),
-      fileName: item.fileName,
-      bytes: item.bytes,
-      expiresInSeconds: RAW_URL_TTL,
-    };
-    return json(200, body);
   }
 
   async function retryLightroom(event: APIGatewayProxyEventV2): Promise<Result> {
@@ -232,8 +216,6 @@ export function createApp({ store, connections, lightroom, fetchFn = fetch }: Ap
           return await listPhotos(event);
         case 'POST /photos/{id}/decision':
           return await decide(event);
-        case 'GET /photos/{id}/raw-url':
-          return await rawUrl(event);
         case 'POST /photos/{id}/lightroom':
           return await retryLightroom(event);
         case 'GET /stats':

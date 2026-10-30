@@ -4,7 +4,7 @@ import { colors } from '../lib/theme';
 import { saveSettings, clearSettings, type Settings } from '../lib/settings';
 import { createApi, type Api } from '../lib/api';
 import type { LightroomStatusView } from '../lib/types';
-import { loginToAdobe, redirectUriFor } from '../lib/adobeAuth';
+import { loginToAdobe } from '../lib/adobeAuth';
 import { Button } from '../components/Button';
 
 interface Props {
@@ -141,9 +141,9 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
               <Button
                 title={lrBusy ? 'Waiting for Adobe…' : 'Connect Lightroom'}
                 onPress={() => void connect()}
-                disabled={lrBusy || !lr.oauth.clientId}
+                disabled={lrBusy || !lr.oauth.clientId || !lr.oauth.redirectUri}
               />
-              <Text style={styles.fine}>Redirect URI: {redirectUriFor(lr.oauth)}</Text>
+              <Text style={styles.fine}>Redirect URI: {lr.oauth.redirectUri || '(not configured)'}</Text>
             </View>
           )}
         </>

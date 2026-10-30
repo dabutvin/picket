@@ -51,13 +51,6 @@ export interface PhotoPage {
   cursor?: string;
 }
 
-export interface RawUrl {
-  url: string;
-  fileName: string;
-  bytes?: number;
-  expiresInSeconds: number;
-}
-
 export interface Stats {
   photos: Record<PhotoStatus, number>;
   lightroom: Record<LightroomStatus, number>;

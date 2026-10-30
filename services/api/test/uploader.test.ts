@@ -26,9 +26,9 @@ function photoStore(initial: PhotoItem[]) {
 const happyFetch = () =>
   fakeFetch({
     'GET /v2/catalogs/cat1/albums?subtype=project': () => lrJson({ resources: [] }),
-    'PUT /v2/catalogs/cat1/albums/': (init, url) =>
+    'PUT /v2/catalogs/cat1/albums/': (_init, url) =>
       url!.endsWith('/assets') ? new Response(null, { status: 201 }) : new Response(null, { status: 201 }),
-    'PUT /v2/catalogs/cat1/assets/': (init, url) => new Response(null, { status: url!.endsWith('/master') ? 201 : 201 }),
+    'PUT /v2/catalogs/cat1/assets/': () => new Response(null, { status: 201 }),
   });
 
 const make = (over: Partial<UploaderDeps> = {}) => {
@@ -104,7 +104,7 @@ describe('uploader', () => {
     let attempt = 0;
     const flaky = fakeFetch({
       'GET /v2/catalogs/cat1/albums?subtype=project': () => lrJson({ resources: [{ id: 'alb1', payload: { name: 'Picket' } }] }),
-      'PUT /v2/catalogs/cat1/assets/': (init, url) => {
+      'PUT /v2/catalogs/cat1/assets/': (_init, url) => {
         if (url!.endsWith('/master')) return new Response('', { status: ++attempt === 1 ? 429 : 413 });
         return new Response(null, { status: 201 });
       },

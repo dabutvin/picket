@@ -15,7 +15,8 @@ export interface Store {
   requeueLightroom(photoId: string): Promise<PhotoItem | undefined>;
   countByStatus(status: PhotoStatus): Promise<number>;
   countByLightroomStatus(status: LightroomStatus): Promise<number>;
-  signGet(key: string, expiresInSeconds: number, downloadAs?: string): Promise<string>;
+  /** Presigned GET for a preview or thumb. */
+  signGet(key: string, expiresInSeconds: number): Promise<string>;
 }
 
 export interface StoreConfig {
@@ -157,16 +158,8 @@ export function createStore(cfg: StoreConfig): Store {
     countByStatus: (status) => count(cfg.statusIndex, 'status', status),
     countByLightroomStatus: (status) => count(cfg.lightroomIndex, 'lightroomStatus', status),
 
-    signGet(key, expiresInSeconds, downloadAs) {
-      return getSignedUrl(
-        s3,
-        new GetObjectCommand({
-          Bucket: cfg.bucket,
-          Key: key,
-          ...(downloadAs ? { ResponseContentDisposition: `attachment; filename="${downloadAs}"` } : {}),
-        }),
-        { expiresIn: expiresInSeconds },
-      );
+    signGet(key, expiresInSeconds) {
+      return getSignedUrl(s3, new GetObjectCommand({ Bucket: cfg.bucket, Key: key }), { expiresIn: expiresInSeconds });
     },
   };
 }

@@ -83,7 +83,9 @@ export class Api extends Construct {
       description: 'Picket: photos API',
     });
     props.table.grantReadWriteData(apiFn);
-    props.bucket.grantRead(apiFn);
+    // Presigned preview/thumb URLs only. The API must never be able to hand out a RAW (ADR-006).
+    props.bucket.grantRead(apiFn, 'previews/*');
+    props.bucket.grantRead(apiFn, 'thumbs/*');
     props.lightroomConnection.grantRead(apiFn);
     props.lightroomConnection.grantWrite(apiFn);
 
@@ -107,7 +109,6 @@ export class Api extends Construct {
     const integration = new HttpLambdaIntegration('ApiIntegration', apiFn);
     http.addRoutes({ path: '/photos', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/photos/{id}/decision', methods: [apigw.HttpMethod.POST], integration });
-    http.addRoutes({ path: '/photos/{id}/raw-url', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/photos/{id}/lightroom', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/stats', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/lightroom', methods: [apigw.HttpMethod.GET, apigw.HttpMethod.POST, apigw.HttpMethod.DELETE], integration });

@@ -61,7 +61,8 @@ export class PicketStack extends cdk.Stack {
       description: 'Bearer token for the app. Paste into the app Settings screen.',
     });
     new cdk.CfnOutput(this, 'LightroomClientId', {
-      value: props.lightroom.clientId || '(not set: pass -c lightroomClientId=... or LIGHTROOM_CLIENT_ID)',
+      value: props.lightroom.clientId,
+      description: 'Adobe Developer Console OAuth Native App client id (public)',
     });
     new cdk.CfnOutput(this, 'LightroomRedirectUri', {
       value: props.lightroom.redirectUri,

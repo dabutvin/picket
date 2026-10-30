@@ -51,14 +51,13 @@ describe('POST /photos/{id}/decision', () => {
   });
 });
 
-describe('GET /photos/{id}/raw-url', () => {
-  it('returns a short-lived download url with the original filename', async () => {
-    const r = await createApp(deps())(ev('GET /photos/{id}/raw-url', { pathParameters: { id: 'a' } }));
-    expect(r.statusCode).toBe(200);
-    expect(body(r)).toEqual({ url: 'https://s3/raw/2026/10/30/a.ARW?ttl=900&dl=a.ARW', fileName: 'a.ARW', bytes: 123, expiresInSeconds: 900 });
-  });
-  it('404s on unknown photo', async () => {
-    expect((await createApp(deps())(ev('GET /photos/{id}/raw-url', { pathParameters: { id: 'zz' } }))).statusCode).toBe(404);
+describe('no RAW download route', () => {
+  it('never presigns anything under raw/', async () => {
+    const d = deps();
+    const app = createApp(d);
+    expect((await app(ev('GET /photos/{id}/raw-url', { pathParameters: { id: 'a' } }))).statusCode).toBe(404);
+    await app(ev('GET /photos'));
+    for (const call of (d.store.signGet as ReturnType<typeof vi.fn>).mock.calls) expect(String(call[0])).not.toMatch(/^raw\//);
   });
 });
 
@@ -164,10 +163,10 @@ describe('Lightroom connection', () => {
 describe('routing', () => {
   it('404s unknown routes and 500s on store failure', async () => {
     const d = deps();
-    (d.store.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+    (d.store.countByStatus as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
     const app = createApp(d);
     expect((await app(ev('DELETE /photos'))).statusCode).toBe(404);
-    expect((await app(ev('GET /photos/{id}/raw-url', { pathParameters: { id: 'a' } }))).statusCode).toBe(500);
+    expect((await app(ev('GET /stats'))).statusCode).toBe(500);
   });
 });
 
