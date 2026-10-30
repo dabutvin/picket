@@ -33,21 +33,26 @@ and an Adobe Developer Console project (below).
 ### Adobe Developer Console (once)
 
 1. Create a project, **Add API → Lightroom Services**, credential type
-   **OAuth Native App**.
-2. Add the redirect URI `picket://oauth`.
-3. Under the project's user settings, add the Adobe account that owns your
+   **OAuth Native App**. Adobe assigns the redirect URI itself, of the form
+   `adobe+<hash>://adobeid/<client id>`; you can't change it.
+2. Under the project's user settings, add the Adobe account that owns your
    Lightroom catalog as a **beta user** (development mode only lets listed users
    log in).
-4. Note the **Client ID** and the scopes the console shows for Lightroom
-   Services. The client id is public; there is no secret.
+3. Note the **Client ID**, the **redirect URI**, and the scopes the console
+   shows (`lr_partner_apis, AdobeID, lr_partner_rendition_apis, openid,
+   offline_access`). None of these are secrets.
+
+This repo already carries the project's values as defaults in
+`infra/bin/picket.ts`, and the redirect URI's scheme is registered under
+`expo.scheme` in `app/app.json`. If you create a different credential, update
+both places (or pass `LIGHTROOM_CLIENT_ID` / `LIGHTROOM_REDIRECT_URI` at deploy
+time and edit `app.json`).
 
 ```bash
 # 1. deploy everything
 cd infra && npm install
-export LIGHTROOM_CLIENT_ID=<client id from the console>
-# export LIGHTROOM_SCOPES=openid,AdobeID,lr_partner_apis,lr_partner_rendition_apis,offline_access   # only if the console lists different ones
 npm run deploy
-#    outputs: ReceiverIp, FtpUser, FtpPasswordSecret, ApiUrl, ApiTokenSecret, Bucket, Table, LightroomRedirectUri
+#    outputs: ReceiverIp, FtpUser, FtpPasswordSecret, ApiUrl, ApiTokenSecret, Bucket, Table, LightroomClientId, LightroomRedirectUri
 
 # 2. read the two secrets
 aws secretsmanager get-secret-value --secret-id <FtpPasswordSecret> --query SecretString --output text
@@ -63,8 +68,8 @@ The receiver takes a couple of minutes after `deploy` finishes to install
 pure-ftpd and the AWS CLI. Check it with
 `aws ssm start-session --target <instance-id>` then `journalctl -t picket -t picket-upload`.
 
-"Connect Lightroom" returns to the app through the `picket://` URL scheme, which
-Expo Go doesn't register, so use a development build:
+"Connect Lightroom" returns to the app through Adobe's `adobe+<hash>://` URL
+scheme, which Expo Go doesn't register, so use a development build:
 `npx eas-cli build --profile development --platform ios`. Review, Picks and
 Skipped work in Expo Go.
 

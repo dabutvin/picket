@@ -90,6 +90,7 @@ describe('Lightroom connection', () => {
     const b = body(r);
     expect(b.connected).toBe(false);
     expect(b.oauth.clientId).toBe('cid');
+    expect(b.oauth.redirectUri).toBe('adobe+x://adobeid/cid');
     expect(b.oauth.authorizeUrl).toContain('ims-na1.adobelogin.com');
     expect(b.albumName).toBe('Picket');
   });

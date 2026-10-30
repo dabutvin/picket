@@ -64,8 +64,8 @@ export class PicketStack extends cdk.Stack {
       value: props.lightroom.clientId || '(not set: pass -c lightroomClientId=... or LIGHTROOM_CLIENT_ID)',
     });
     new cdk.CfnOutput(this, 'LightroomRedirectUri', {
-      value: 'picket://oauth',
-      description: 'Add this redirect URI to the Adobe Developer Console native-app credential',
+      value: props.lightroom.redirectUri,
+      description: 'Must equal the redirect URI Adobe shows on the Native App credential; the app registers its scheme',
     });
   }
 }

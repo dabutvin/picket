@@ -46,7 +46,7 @@ export const connection = (extra: Partial<LightroomConnection> = {}): LightroomC
 export const deps = (over: Partial<AppDeps> = {}): AppDeps => ({
   store: fakeStore(),
   connections: createMemoryConnectionStore(null),
-  lightroom: { clientId: 'cid', scopes: ['openid'], albumName: 'Picket' },
+  lightroom: { clientId: 'cid', scopes: ['openid'], redirectUri: 'adobe+x://adobeid/cid', albumName: 'Picket' },
   fetchFn: vi.fn(async () => new Response('{}', { status: 500 })) as unknown as typeof fetch,
   ...over,
 });

@@ -4,8 +4,13 @@ import type { ConnectRequest, LightroomStatusView } from './types';
 
 WebBrowser.maybeCompleteAuthSession();
 
-/** Must match a redirect URI registered on the Adobe "OAuth Native App" credential. */
-export const REDIRECT_URI = makeRedirectUri({ scheme: 'picket', path: 'oauth' });
+/**
+ * Adobe fixes the redirect for Native App credentials to adobe+<hash>://adobeid/<clientId>.
+ * The backend tells us the exact value; that scheme is registered in app.json. The
+ * picket:// fallback only exists for local experiments.
+ */
+export const redirectUriFor = (oauth: LightroomStatusView['oauth']): string =>
+  oauth.redirectUri || makeRedirectUri({ scheme: 'picket', path: 'oauth' });
 
 export type AdobeLoginResult = { type: 'success'; tokens: ConnectRequest } | { type: 'cancel' } | { type: 'error'; message: string };
 
@@ -16,10 +21,11 @@ export type AdobeLoginResult = { type: 'success'; tokens: ConnectRequest } | { t
 export async function loginToAdobe(oauth: LightroomStatusView['oauth']): Promise<AdobeLoginResult> {
   if (!oauth.clientId) return { type: 'error', message: 'The server has no Lightroom client id configured.' };
 
+  const redirectUri = redirectUriFor(oauth);
   const request = new AuthRequest({
     clientId: oauth.clientId,
     scopes: oauth.scopes,
-    redirectUri: REDIRECT_URI,
+    redirectUri,
     responseType: ResponseType.Code,
     usePKCE: true,
     codeChallengeMethod: CodeChallengeMethod.S256,
@@ -37,7 +43,7 @@ export async function loginToAdobe(oauth: LightroomStatusView['oauth']): Promise
     {
       clientId: oauth.clientId,
       code,
-      redirectUri: REDIRECT_URI,
+      redirectUri,
       scopes: oauth.scopes,
       extraParams: request.codeVerifier ? { code_verifier: request.codeVerifier } : {},
     },

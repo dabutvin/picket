@@ -15,6 +15,8 @@ export interface LightroomSettings {
   clientId: string;
   /** IMS scopes the app requests. */
   scopes: string[];
+  /** Adobe fixes this for Native App credentials: adobe+<hash>://adobeid/<clientId>. */
+  redirectUri: string;
   /** Name of the project album picks land in. */
   albumName: string;
   /** Override the Content-Type for master uploads if Lightroom answers 415. */

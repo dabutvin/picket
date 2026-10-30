@@ -25,6 +25,8 @@ export const MAX_LIMIT = 100;
 export interface LightroomConfig {
   clientId: string;
   scopes: string[];
+  /** Fixed by Adobe for Native App credentials: adobe+<hash>://adobeid/<clientId>. The app must register that scheme. */
+  redirectUri: string;
   albumName: string;
 }
 
@@ -135,7 +137,13 @@ export function createApp({ store, connections, lightroom, fetchFn = fetch }: Ap
     albumName: lightroom.albumName,
     storage: conn?.storage,
     connectedAt: conn?.connectedAt,
-    oauth: { clientId: lightroom.clientId, scopes: lightroom.scopes, authorizeUrl: IMS_AUTHORIZE_URL, tokenUrl: IMS_TOKEN_URL },
+    oauth: {
+      clientId: lightroom.clientId,
+      scopes: lightroom.scopes,
+      redirectUri: lightroom.redirectUri,
+      authorizeUrl: IMS_AUTHORIZE_URL,
+      tokenUrl: IMS_TOKEN_URL,
+    },
   });
 
   async function lightroomStatus(): Promise<Result> {

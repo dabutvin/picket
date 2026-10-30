@@ -4,10 +4,17 @@ import { PicketStack } from '../lib/picket-stack';
 
 const app = new cdk.App();
 
-/** Adobe settings: `cdk deploy -c lightroomClientId=...` or LIGHTROOM_CLIENT_ID in the shell. */
+/**
+ * Adobe Developer Console settings. The defaults are the project's "OAuth Native App"
+ * credential with Lightroom Services (public identifiers, no secret). Override with
+ * `cdk deploy -c lightroomClientId=...` or LIGHTROOM_* variables in the shell.
+ * The redirect URI is fixed by Adobe (adobe+<hash>://adobeid/<clientId>) and its
+ * scheme must also be listed under `expo.scheme` in app/app.json.
+ */
 const ctx = (key: string, env: string): string | undefined => (app.node.tryGetContext(key) as string | undefined) ?? process.env[env];
 const lightroom = {
-  clientId: ctx('lightroomClientId', 'LIGHTROOM_CLIENT_ID') ?? '',
+  clientId: ctx('lightroomClientId', 'LIGHTROOM_CLIENT_ID') ?? '5143c127087c4e06ac773b76c4d05f61',
+  redirectUri: ctx('lightroomRedirectUri', 'LIGHTROOM_REDIRECT_URI') ?? 'adobe+94690ff144227aa43751adfb4cb46fc1432adb0c://adobeid/5143c127087c4e06ac773b76c4d05f61',
   scopes: (ctx('lightroomScopes', 'LIGHTROOM_SCOPES') ?? 'openid,AdobeID,lr_partner_apis,lr_partner_rendition_apis,offline_access')
     .split(',')
     .map((s) => s.trim())
@@ -15,9 +22,6 @@ const lightroom = {
   albumName: ctx('lightroomAlbumName', 'LIGHTROOM_ALBUM_NAME') ?? 'Picket',
   rawContentType: ctx('lightroomRawContentType', 'LIGHTROOM_RAW_CONTENT_TYPE'),
 };
-if (!lightroom.clientId) {
-  console.warn('[picket] LIGHTROOM_CLIENT_ID not set: the stack deploys, but "Connect Lightroom" in the app will be disabled until it is.');
-}
 
 new PicketStack(app, 'Picket', {
   lightroom,

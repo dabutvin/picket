@@ -87,7 +87,7 @@ export interface LightroomStatusView {
   storage?: { used: number; limit: number };
   connectedAt?: string;
   /** OAuth config the app needs to start the PKCE flow. */
-  oauth: { clientId: string; scopes: string[]; authorizeUrl: string; tokenUrl: string };
+  oauth: { clientId: string; scopes: string[]; redirectUri: string; authorizeUrl: string; tokenUrl: string };
 }
 
 export interface ConnectRequest {

@@ -74,8 +74,9 @@ pre-fetches the next previews. The Picks screen lists `pick` photos.
 Server-side, through the Lightroom (catalog) API at `https://lr.adobe.io`
 (ADR-006). Once, in Settings, you tap **Connect Lightroom**: the app runs an
 OAuth Authorization Code + PKCE flow against Adobe IMS with the project's
-"OAuth Native App" client id, then hands the resulting tokens to
-`POST /lightroom`. The API verifies the account is entitled (`GET /v2/account`,
+"OAuth Native App" client id and Adobe's fixed redirect URI
+(`adobe+<hash>://adobeid/<clientId>`, whose scheme the app registers), then
+hands the resulting tokens to `POST /lightroom`. The API verifies the account is entitled (`GET /v2/account`,
 status `subscriber` or `trial`), fetches the catalog id (`GET /v2/catalog`), and
 stores everything in one Secrets Manager secret. The phone keeps nothing.
 

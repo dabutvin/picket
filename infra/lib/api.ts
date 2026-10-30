@@ -77,6 +77,7 @@ export class Api extends Construct {
         LIGHTROOM_SECRET_ARN: props.lightroomConnection.secretArn,
         LIGHTROOM_CLIENT_ID: props.lightroom.clientId,
         LIGHTROOM_SCOPES: props.lightroom.scopes.join(','),
+        LIGHTROOM_REDIRECT_URI: props.lightroom.redirectUri,
         LIGHTROOM_ALBUM_NAME: props.lightroom.albumName,
       },
       description: 'Picket: photos API',

@@ -11,6 +11,7 @@ export const DEFAULT_SCOPES = ['openid', 'AdobeID', 'lr_partner_apis', 'lr_partn
 export function lightroomConfigFromEnv(): LightroomConfig {
   return {
     clientId: process.env.LIGHTROOM_CLIENT_ID ?? '',
+    redirectUri: process.env.LIGHTROOM_REDIRECT_URI ?? '',
     scopes: (process.env.LIGHTROOM_SCOPES ?? DEFAULT_SCOPES.join(',')).split(',').map((s) => s.trim()).filter(Boolean),
     albumName: process.env.LIGHTROOM_ALBUM_NAME ?? 'Picket',
   };

@@ -28,6 +28,9 @@
       "expo-secure-store",
       "expo-web-browser"
     ],
-    "scheme": "picket"
+    "scheme": [
+      "picket",
+      "adobe+94690ff144227aa43751adfb4cb46fc1432adb0c"
+    ]
   }
 }

@@ -96,7 +96,9 @@ as a beta user. Enough for one user's own catalog.
 
 **Decision.**
 - The app runs Authorization Code + PKCE against Adobe IMS (public client, no
-  secret) with redirect `picket://oauth`, and immediately hands the tokens to the
+  secret). Adobe fixes the redirect URI for Native App credentials to
+  `adobe+<hash>://adobeid/<clientId>`, so the app registers that scheme and the
+  backend serves the exact value; the app immediately hands the tokens to the
   backend. The backend stores them in Secrets Manager, refreshes them, and never
   returns them.
 - A pick is a row-level state change (`lightroomStatus = queued`). The table
@@ -115,7 +117,10 @@ seconds after the swipe and survives the phone going offline. We depend on
 Adobe keeping the credential enabled; development mode caps who can log in
 (fine for one photographer). The `raw-url` endpoint stays for debugging only.
 
-**Open items to confirm on the first real upload.** The exact IMS scope names
-the console lists for Lightroom Services (defaults in `infra/bin/picket.ts`), and
-the `Content-Type` Lightroom accepts for `.ARW` masters (`image/x-sony-arw` by
-default; `LIGHTROOM_RAW_CONTENT_TYPE` overrides it if Adobe answers 415).
+**Confirmed from the console.** Scopes are `lr_partner_apis, AdobeID,
+lr_partner_rendition_apis, openid, offline_access`; client id and redirect URI
+are the defaults in `infra/bin/picket.ts`.
+
+**Open item to confirm on the first real upload.** The `Content-Type` Lightroom
+accepts for `.ARW` masters (`image/x-sony-arw` by default;
+`LIGHTROOM_RAW_CONTENT_TYPE` overrides it if Adobe answers 415).

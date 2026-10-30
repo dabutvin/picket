@@ -53,7 +53,7 @@ export interface LightroomStatusView {
   albumName: string;
   storage?: { used: number; limit: number };
   connectedAt?: string;
-  oauth: { clientId: string; scopes: string[]; authorizeUrl: string; tokenUrl: string };
+  oauth: { clientId: string; scopes: string[]; redirectUri: string; authorizeUrl: string; tokenUrl: string };
 }
 
 export interface ConnectRequest {
