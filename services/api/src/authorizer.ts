@@ -24,19 +24,23 @@ export function createAuthorizer(loadToken: () => Promise<string>) {
   };
 }
 
-let cached: Promise<string> | undefined;
+const TOKEN_CACHE_MS = 5 * 60 * 1000;
+let cached: { value: Promise<string>; loadedAt: number } | undefined;
 const loadFromSecretsManager = (): Promise<string> => {
-  cached ??= new SecretsManagerClient({})
-    .send(new GetSecretValueCommand({ SecretId: process.env.TOKEN_SECRET_ARN }))
-    .then((r) => {
-      if (!r.SecretString) throw new Error('token secret is empty');
-      return r.SecretString;
-    })
-    .catch((err) => {
-      cached = undefined; // retry on the next invocation
-      throw err;
-    });
-  return cached;
+  if (!cached || Date.now() - cached.loadedAt > TOKEN_CACHE_MS) {
+    const value = new SecretsManagerClient({})
+      .send(new GetSecretValueCommand({ SecretId: process.env.TOKEN_SECRET_ARN }))
+      .then((r) => {
+        if (!r.SecretString) throw new Error('token secret is empty');
+        return r.SecretString;
+      })
+      .catch((err) => {
+        cached = undefined; // retry on the next invocation
+        throw err;
+      });
+    cached = { value, loadedAt: Date.now() };
+  }
+  return cached.value;
 };
 
 export const handler = createAuthorizer(loadFromSecretsManager);

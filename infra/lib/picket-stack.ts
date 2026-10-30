@@ -37,6 +37,9 @@ export class PicketStack extends cdk.Stack {
       settings: props.lightroom,
     });
 
+    new cdk.CfnOutput(this, 'UploaderLogGroup', { value: lightroom.uploader.logGroup.logGroupName });
+    new cdk.CfnOutput(this, 'UploadQueueUrl', { value: lightroom.queue.queueUrl });
+
     const api = new Api(this, 'Api', {
       bucket: storage.bucket,
       table: storage.table,
@@ -51,6 +54,7 @@ export class PicketStack extends cdk.Stack {
       description: 'Host Name to enter on the camera (FTP Transfer > Server Setting)',
     });
     new cdk.CfnOutput(this, 'FtpUser', { value: receiver.ftpUser });
+    new cdk.CfnOutput(this, 'ReceiverInstanceId', { value: receiver.instance.instanceId });
     new cdk.CfnOutput(this, 'FtpPasswordSecret', {
       value: receiver.ftpPassword.secretName,
       description: 'aws secretsmanager get-secret-value --secret-id <this>',

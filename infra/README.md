@@ -20,5 +20,9 @@ Adobe settings default to the project's credential in `bin/picket.ts`; override 
 `LIGHTROOM_CLIENT_ID`, `LIGHTROOM_REDIRECT_URI`, `LIGHTROOM_SCOPES`, `LIGHTROOM_ALBUM_NAME`,
 `LIGHTROOM_RAW_CONTENT_TYPE` or the matching `-c` context keys.
 
+Deploys normally run from the `deploy` GitHub Actions workflow (`docs/OPERATIONS.md`).
+The receiver carries the tag `picket:role=receiver`; `/usr/local/bin/picket-set-ftp-password.sh`
+on it reloads the camera password from Secrets Manager (the deploy workflow runs it over SSM).
+
 Buckets and tables are `RETAIN`ed on destroy. The receiver is replaced when
 `ingest/cloud-init.sh` changes (`userDataCausesReplacement`).

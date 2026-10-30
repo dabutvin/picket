@@ -1,0 +1,46 @@
+name: app-build
+
+# Kicks off an EAS Build. One-time prerequisites (see docs/OPERATIONS.md):
+# an EAS project id in app/app.json, EXPO_TOKEN in secrets, and iOS signing
+# credentials already generated on EAS.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: eas.json build profile
+        type: choice
+        default: preview
+        options: [preview, production]
+      platform:
+        type: choice
+        default: ios
+        options: [ios, android, all]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: "app/package-lock.json" }
+      - name: Check EXPO_TOKEN
+        env: { T: "${{ secrets.EXPO_TOKEN }}" }
+        run: '[ -n "$T" ] || { echo "::error::Set EXPO_TOKEN in repository secrets (expo.dev → Access tokens)"; exit 1; }'
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+        working-directory: app
+      - name: Start build
+        working-directory: app
+        run: |
+          set -euo pipefail
+          eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --no-wait --json > build.json
+          {
+            echo "## EAS build started (${{ inputs.platform }} / ${{ inputs.profile }})"
+            echo
+            jq -r '.[] | "- \(.platform): [\(.id)](\(.artifacts.buildUrl // ("https://expo.dev/accounts/" + .project.ownerAccount.name + "/projects/" + .project.slug + "/builds/" + .id)))"' build.json
+            echo
+            echo "Open the link on your phone; when the build finishes, tap Install (internal distribution) or wait for TestFlight (production)."
+          } >> "$GITHUB_STEP_SUMMARY"

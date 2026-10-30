@@ -14,6 +14,10 @@ npx expo start                      # Review/Picks/Skipped work in Expo Go; Conn
 npx eas-cli build --profile development --platform ios
 ```
 
+`eas.json` has `preview` (internal distribution, install from the EAS link) and `production`
+profiles; the `app-build` GitHub workflow starts them. See `docs/OPERATIONS.md` for the
+one-time Apple signing setup and the EAS project id.
+
 `src/lib/types.ts` mirrors `services/api/src/types.ts`; keep them in sync.
 
 Naming: the API's `reject` status is shown as “Skip”/“Skipped” in the UI, since

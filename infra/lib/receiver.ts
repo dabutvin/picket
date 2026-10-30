@@ -101,6 +101,8 @@ export class Receiver extends Construct {
       requireImdsv2: true,
       userDataCausesReplacement: true,
     });
+    // Workflows find the receiver by this tag (ops.yml, deploy.yml).
+    cdk.Tags.of(this.instance).add('picket:role', 'receiver');
 
     new ec2.CfnEIPAssociation(this, 'EipAssoc', {
       allocationId: eip.attrAllocationId,

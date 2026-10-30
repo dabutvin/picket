@@ -95,15 +95,27 @@ mkdir -p "/srv/ftp/${FTP_USER}"
 chown -R ftpcamera:ftpcamera /srv/ftp
 chmod 0750 /srv/ftp "/srv/ftp/${FTP_USER}"
 
-FTP_PASSWORD="$(aws secretsmanager get-secret-value --region "${REGION}" --secret-id "${FTP_SECRET_ARN}" --query SecretString --output text)"
-if pure-pw show "${FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd >/dev/null 2>&1; then
-  printf '%s\n%s\n' "${FTP_PASSWORD}" "${FTP_PASSWORD}" | pure-pw passwd "${FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd
+# (Re)load the camera's password from Secrets Manager. Also run later via SSM
+# after the deploy workflow rotates the secret: picket-set-ftp-password.sh
+cat >> /etc/picket.env <<ENV
+PICKET_FTP_USER=${FTP_USER}
+PICKET_FTP_SECRET_ARN=${FTP_SECRET_ARN}
+ENV
+install -m 0755 /dev/stdin /usr/local/bin/picket-set-ftp-password.sh <<'SETPW'
+#!/usr/bin/env bash
+set -euo pipefail
+source /etc/picket.env
+pw="$(aws secretsmanager get-secret-value --secret-id "${PICKET_FTP_SECRET_ARN}" --query SecretString --output text)"
+if pure-pw show "${PICKET_FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd >/dev/null 2>&1; then
+  printf '%s\n%s\n' "${pw}" "${pw}" | pure-pw passwd "${PICKET_FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd
 else
-  printf '%s\n%s\n' "${FTP_PASSWORD}" "${FTP_PASSWORD}" | pure-pw useradd "${FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd \
-    -u ftpcamera -g ftpcamera -d "/srv/ftp/${FTP_USER}"
+  printf '%s\n%s\n' "${pw}" "${pw}" | pure-pw useradd "${PICKET_FTP_USER}" -f /etc/pure-ftpd/pureftpd.passwd \
+    -u ftpcamera -g ftpcamera -d "/srv/ftp/${PICKET_FTP_USER}"
 fi
 pure-pw mkdb /etc/pure-ftpd/pureftpd.pdb -f /etc/pure-ftpd/pureftpd.passwd
-unset FTP_PASSWORD
+logger -t picket "ftp password (re)loaded for ${PICKET_FTP_USER}"
+SETPW
+/usr/local/bin/picket-set-ftp-password.sh
 
 # The hook runs as the FTP user's uid so it can delete what it uploads.
 sed -i 's|^UPLOADSCRIPT=.*|UPLOADSCRIPT=/usr/local/bin/picket-upload.sh|' /etc/default/pure-ftpd-common

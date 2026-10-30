@@ -11,8 +11,9 @@ camera ──FTPS──▶ receiver (EC2) ──▶ S3 raw/ ──▶ Lambda pre
 ```
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
-[`docs/DECISIONS.md`](docs/DECISIONS.md) for why, and
-[`docs/CAMERA_SETUP.md`](docs/CAMERA_SETUP.md) for the camera menus.
+[`docs/DECISIONS.md`](docs/DECISIONS.md) for why,
+[`docs/CAMERA_SETUP.md`](docs/CAMERA_SETUP.md) for the camera menus, and
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) to run all of it from a phone.
 
 ## Layout
 
@@ -24,7 +25,17 @@ Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
 | `services/api/`     | Node Lambdas: HTTP API + authorizer, stream router, Lightroom uploader | `npm test`    |
 | `app/`              | Expo app: swipe deck, picks, skipped, connect Lightroom     | `npm run typecheck`      |
 
-## Getting started
+## Getting started (no terminal)
+
+Everything deploys and operates through GitHub Actions buttons; see
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md). In short: add AWS credentials and
+your chosen FTP password / API token as repository secrets, run the **deploy**
+workflow, read `ReceiverIp` and `ApiUrl` from its summary, set up the camera
+and the app. The **ops** workflow gives you status, receiver start/stop and
+retries. The **app-build** workflow starts EAS builds once the one-time Apple
+signing setup is done.
+
+## Getting started (terminal)
 
 Prereqs: Node 22, Python 3.12+, an AWS account with credentials in your shell,
 the CDK bootstrapped once in the target account/region (`npx cdk bootstrap`),
@@ -78,8 +89,8 @@ Picks that fail six times land on the dead-letter queue (`UploadDlqUrl` output).
 
 ## Status
 
-Kick-off scaffold. Everything synthesizes, typechecks and passes tests; nothing
-has been deployed yet. First deploy and a real camera → S3 → swipe → Lightroom
+Kick-off scaffold plus phone-only operations. Everything synthesizes, typechecks
+and passes tests; nothing has been deployed yet. First deploy and a real camera → S3 → swipe → Lightroom
 round trip is the next milestone. Two things to confirm on that first run: the
 IMS scope names and the `Content-Type` Lightroom wants for `.ARW` masters (see
 ADR-006). See `docs/ARCHITECTURE.md` → "Not in scope yet" for the rest.
