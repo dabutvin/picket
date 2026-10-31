@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy' || inputs.action == 'dns'
+        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
@@ -105,14 +105,11 @@ jobs:
           SECRET: ${{ steps.outs.outputs.PairingSecret }}
         run: |
           set -euo pipefail
-          raw="$(tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c 8)"
-          code="${raw:0:4}-${raw:4:4}"
-          expires="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
-          aws secretsmanager put-secret-value --secret-id "$SECRET" --secret-string "{\"code\":\"$code\",\"expiresAt\":\"$expires\"}" >/dev/null
+          eval "$(infra/scripts/pairing-code.sh "$SECRET" 30)"
           {
             echo "## Pair the app"
             echo
-            echo "Settings → API URL \`${{ steps.outs.outputs.ApiUrl }}\` → pairing code **$code** (valid until $expires UTC, one use)."
+            echo "Settings → API URL \`${{ steps.outs.outputs.ApiUrl }}\` → pairing code **$PAIRING_CODE** (valid until $PAIRING_EXPIRES UTC, one use)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Netlify DNS records
