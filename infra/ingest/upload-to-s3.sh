@@ -4,6 +4,9 @@
 # Also used by the sweep timer to retry anything the hook missed.
 set -euo pipefail
 
+# pure-uploadscript is started by the pure-ftpd init script with PATH=/sbin:/bin:/usr/sbin:/usr/bin,
+# which does not include /usr/local/bin where the AWS CLI is installed.
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 source /etc/picket.env   # PICKET_BUCKET, PICKET_RAW_PREFIX, AWS_DEFAULT_REGION
 
 file="$1"
@@ -22,11 +25,11 @@ day="$(date -u +%Y/%m/%d)"
 key="${PICKET_RAW_PREFIX}${day}/${name}"
 
 for attempt in 1 2 3 4 5; do
-  if aws s3 mv --only-show-errors --no-progress -- "$file" "s3://${PICKET_BUCKET}/${key}"; then
+  if err="$(aws s3 mv --only-show-errors --no-progress -- "$file" "s3://${PICKET_BUCKET}/${key}" 2>&1)"; then
     logger -t picket-upload "uploaded ${name} -> s3://${PICKET_BUCKET}/${key}"
     exit 0
   fi
-  logger -t picket-upload "attempt ${attempt} failed for ${name}, retrying"
+  logger -t picket-upload "attempt ${attempt} failed for ${name}: ${err:-no output}; retrying"
   sleep $(( attempt * 5 ))
 done
 
