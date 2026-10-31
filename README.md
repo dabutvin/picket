@@ -10,6 +10,9 @@ camera ──FTPS──▶ receiver (EC2) ──▶ S3 raw/ ──▶ Lambda pre
                           Expo app  ◀── swipe ◀── HTTP API ◀──────────┘
 ```
 
+**Picking this up?** Read [`docs/STATUS.md`](docs/STATUS.md) first: what is
+live, what is next, and how it is operated.
+
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
 [`docs/DECISIONS.md`](docs/DECISIONS.md) for why,
 [`docs/CAMERA_SETUP.md`](docs/CAMERA_SETUP.md) for the camera menus, and
