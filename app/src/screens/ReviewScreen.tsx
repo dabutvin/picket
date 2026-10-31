@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import type { Api } from '../lib/api';
 import type { Photo, Stats } from '../lib/types';
 import { colors } from '../lib/theme';
+import { noteDecision, withRecent } from '../lib/recent';
 import { Button } from '../components/Button';
 import { Carousel } from '../components/Carousel';
 import { ReviewCard, type CardDecision } from '../components/ReviewCard';
@@ -49,7 +50,8 @@ export function ReviewScreen({ api }: { api: Api }) {
         const page = await api.list('unreviewed', PAGE, reset ? undefined : cursor);
         setQueue((q) => {
           const seen = new Set(reset ? [] : q.map((p) => p.photoId));
-          return [...(reset ? [] : q), ...page.items.filter((p) => !seen.has(p.photoId))];
+          const merged = [...(reset ? [] : q), ...page.items.filter((p) => !seen.has(p.photoId))];
+          return reset ? withRecent('unreviewed', merged) : merged;
         });
         if (reset) setIndex(0);
         setCursor(page.cursor);
@@ -87,10 +89,12 @@ export function ReviewScreen({ api }: { api: Api }) {
       const at = queueRef.current.findIndex((p) => p.photoId === photo.photoId);
       if (at < 0) return;
       setLast({ photo, decision, index: at });
+      noteDecision(photo, decision);
       setQueue((q) => q.filter((p) => p.photoId !== photo.photoId));
       setDecided((n) => n + 1);
       api.decide(photo.photoId, decision).catch((e: unknown) => {
         // Put it back where it was so nothing is silently lost.
+        noteDecision(photo, 'unreviewed');
         setQueue((q) => (q.some((p) => p.photoId === photo.photoId) ? q : [photo, ...q]));
         setLast(null);
         setDecided((n) => n - 1);
@@ -104,6 +108,7 @@ export function ReviewScreen({ api }: { api: Api }) {
     if (!last) return;
     const { photo, index: at } = last;
     setLast(null);
+    noteDecision(photo, 'unreviewed');
     const next = queueRef.current.filter((p) => p.photoId !== photo.photoId);
     const slot = Math.min(at, next.length);
     next.splice(slot, 0, { ...photo, status: 'unreviewed' });
