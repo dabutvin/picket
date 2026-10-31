@@ -4,6 +4,9 @@ Picket moves RAW photos from a Sony a7C II to AWS wirelessly, lets you swipe
 through them on your phone to pick keepers, and uploads the picks straight from
 S3 into your Lightroom cloud catalog. The RAW files never touch the phone.
 
+This document describes the intended system. `docs/STATUS.md` says which parts
+have actually run.
+
 ```
  Sony a7C II ──FTPES (FTP over TLS)──▶ Receiver (EC2, pure-ftpd) ──aws s3 mv──▶ S3  raw/
                                                                                  │
