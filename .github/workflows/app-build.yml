@@ -85,8 +85,11 @@ jobs:
           if node -e 'const a=require("./app.json"); process.exit(a.expo?.extra?.eas?.projectId ? 0 : 1)'; then
             echo "EAS project already linked"; exit 0
           fi
-          account="$(eas whoami 2>/dev/null | tail -n1 | tr -d '[:space:]')"
-          eas init --account "$account" --non-interactive --force
+          # The owning Expo account comes from expo.owner in app.json; `eas whoami` prints
+          # the username plus a bullet list of accounts, which is not parseable.
+          owner="$(node -p 'require("./app.json").expo.owner ?? ""')"
+          [ -n "$owner" ] || { echo "::error::Set expo.owner in app/app.json to the Expo account that should own the project"; exit 1; }
+          eas init --account "$owner" --non-interactive --force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app.json
