@@ -25,6 +25,38 @@ source /etc/picket.env 2>/dev/null || true
 pure-pw show "${PICKET_FTP_USER:-camera}" -f /etc/pure-ftpd/pureftpd.passwd 2>&1 | head -n 6 || true
 ls -ld /srv/ftp /srv/ftp/* 2>&1 || true
 
+section "FTP home: files waiting for upload"
+ls -l /srv/ftp/camera 2>&1 || true
+
+section "upload hook environment (pure-uploadscript process)"
+command -v aws || echo "aws not on this shell's PATH"
+aws --version 2>&1 || true
+pid="$(pgrep -f pure-uploadscript | head -n1 || true)"
+if [ -n "$pid" ]; then
+  tr '\0' '\n' < "/proc/$pid/environ" | grep -E '^(PATH|HOME|USER|LOGNAME)=' || echo "(no PATH/HOME in the uploadscript environment)"
+  hook_path="$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^PATH=//p')"
+  hook_home="$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^HOME=//p')"
+else
+  echo "pure-uploadscript is not running"; hook_path=""; hook_home=""
+fi
+
+section "upload hook dry run as ftpcamera, with the uploadscript's PATH/HOME, stderr shown"
+source /etc/picket.env 2>/dev/null || true
+f="$(find /srv/ftp -type f ! -name '.*' | head -n1 || true)"
+if [ -n "$f" ]; then
+  echo "trying the real hook on: $f"
+  sudo -u ftpcamera env -i PATH="${hook_path:-/usr/bin:/bin}" HOME="${hook_home:-/}" \
+    bash -x /usr/local/bin/picket-upload.sh "$f" 2>&1 | tail -n 25 || true
+else
+  echo "no files waiting; testing credentials and a tiny put instead"
+  sudo -u ftpcamera env -i PATH="${hook_path:-/usr/bin:/bin}" HOME="${hook_home:-/}" \
+    bash -c 'source /etc/picket.env; command -v aws; aws sts get-caller-identity; echo diag > /tmp/picket-diag.txt; aws s3 cp /tmp/picket-diag.txt "s3://${PICKET_BUCKET}/${PICKET_RAW_PREFIX}_diag/picket-diag.txt"' 2>&1 | tail -n 15 || true
+fi
+
+section "sweep timer"
+systemctl status picket-sweep.timer --no-pager 2>&1 | head -n 6 || true
+journalctl -u picket-sweep --no-pager -n 20 2>&1 || true
+
 section "TLS certificate served"
 openssl x509 -in /etc/ssl/private/pure-ftpd.pem -noout -subject -issuer -dates -ext subjectAltName 2>&1 || true
 ls /etc/letsencrypt/live 2>&1 || echo "no Let's Encrypt directory yet"
