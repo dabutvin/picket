@@ -113,11 +113,13 @@ jobs:
           set -euo pipefail
           out() { jq -r ".${STACK}.$1" infra/outputs.json; }
           if [ -z "$API_TOKEN" ]; then
-            echo "::error::Set the PICKET_API_TOKEN secret (any long random string). It is the token you paste into the app's Settings; the API accepts only that value."
-            exit 1
+            echo "::warning::PICKET_API_TOKEN is not set. The API keeps an AWS-generated token the app can't know; add the secret (any long random string) and run deploy again to pair the app."
+            echo "token_state=missing" >> "$GITHUB_ENV"
+            exit 0
           fi
           cur="$(aws secretsmanager get-secret-value --secret-id "$(out ApiTokenSecret)" --query SecretString --output text)"
           [ "$cur" = "$API_TOKEN" ] || aws secretsmanager put-secret-value --secret-id "$(out ApiTokenSecret)" --secret-string "$API_TOKEN" >/dev/null
+          echo "token_state=set" >> "$GITHUB_ENV"
 
       - name: Summary
         if: inputs.action == 'deploy'
@@ -132,7 +134,11 @@ jobs:
               v="$(out $k)"; [ "$v" = "null" ] || echo "| \`$k\` | \`$v\` |"
             done
             echo
-            echo "- App: Settings → API URL = \`$(out ApiUrl)\`, Token = your \`PICKET_API_TOKEN\` secret → Connect Lightroom."
+            if [ "${token_state:-missing}" = "set" ]; then
+              echo "- App: Settings → API URL = \`$(out ApiUrl)\`, Token = your \`PICKET_API_TOKEN\` secret → Connect Lightroom."
+            else
+              echo "- **Add the \`PICKET_API_TOKEN\` repository secret (any long random string) and run deploy again**; then the app pairs with API URL = \`$(out ApiUrl)\` and that token."
+            fi
             echo "- Camera: the app's **Camera** tab shows host, user and password with copy buttons, rotates the password, and starts/stops the receiver."
             echo
             if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
