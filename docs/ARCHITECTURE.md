@@ -86,6 +86,11 @@ it to `sent`, and it leaves Picks for the Sent screen, which is read-only. The
 Skipped screen lists `reject` photos so any skip can become a pick later.
 Nothing is ever deleted from S3 by a swipe.
 
+The app has a **sample-photos mode** (`app/src/lib/demo.ts`, Settings → *Try with
+sample photos*, or `EXPO_PUBLIC_PICKET_DEMO=1`) that stands in for the API, and a
+web build; the `ui-preview` workflow screenshots every screen from it on each
+pull request. How UI work is done against those is in `app/AGENTS.md`.
+
 ### 4. Picks → Lightroom cloud
 
 Server-side, through the Lightroom (catalog) API at `https://lr.adobe.io`
