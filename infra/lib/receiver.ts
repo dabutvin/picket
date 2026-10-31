@@ -56,7 +56,7 @@ export class Receiver extends Construct {
     });
     sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(21), 'FTP control (TLS required)');
     sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcpRange(pasv.min, pasv.max), 'FTP passive data');
-    if (props.dns) sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), "Let's Encrypt HTTP-01 challenge");
+    if (props.dns) sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'HTTP-01 challenge for the receiver certificate');
     // No SSH. Use Session Manager: aws ssm start-session --target <instance-id>
 
     // The camera's password. Letters and digits only so it's easy to type on the camera.
