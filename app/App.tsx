@@ -9,13 +9,15 @@ import { createApi } from './src/lib/api';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { SkippedScreen } from './src/screens/SkippedScreen';
+import { CameraScreen } from './src/screens/CameraScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
-type Tab = 'review' | 'picks' | 'skipped' | 'settings';
+type Tab = 'review' | 'picks' | 'skipped' | 'camera' | 'settings';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'review', label: 'Review' },
   { key: 'picks', label: 'Picks' },
   { key: 'skipped', label: 'Skipped' },
+  { key: 'camera', label: 'Camera' },
   { key: 'settings', label: 'Settings' },
 ];
 
@@ -43,6 +45,8 @@ export default function App() {
             <PicksScreen api={api} />
           ) : activeTab === 'skipped' && api ? (
             <SkippedScreen api={api} />
+          ) : activeTab === 'camera' && api ? (
+            <CameraScreen api={api} />
           ) : (
             <SettingsScreen
               initial={settings}

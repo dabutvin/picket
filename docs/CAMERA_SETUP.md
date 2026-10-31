@@ -21,27 +21,28 @@ Either:
 | field                  | value                                                        |
 |------------------------|--------------------------------------------------------------|
 | Display Name           | `picket`                                                     |
-| Destination Settings → Host Name | the receiver's Elastic IP (CDK output `ReceiverIp`), or your DNS name |
+| Destination Settings → Host Name | `ftp.picket.photos` (CDK output `FtpHost`; falls back to the Elastic IP when no domain is configured) |
 | Secure Protocol        | **On** (FTPES, explicit FTP over TLS)                        |
-| Root Certificate Error | `Does Not Connect` once you've imported the cert (below); `Connect` to test |
+| Root Certificate Error | try `Does Not Connect` (the receiver serves a Let's Encrypt certificate once DNS is live); switch to `Connect` if the camera rejects the chain |
 | Port                   | `21`                                                         |
 | Directory Settings → Specify Directory | `/` (leave default)                           |
 | Directory Hierarchy    | `Standard`                                                   |
 | Same File Name         | `Does Not Overwrite`                                         |
-| User Info → User       | `camera` (CDK output `FtpUser`)                              |
-| User Info → Password   | from Secrets Manager (CDK output `FtpPasswordSecret`)        |
+| User Info → User       | `camera` (shown in the app's Camera tab)                      |
+| User Info → Password   | from the app's **Camera** tab (set one that's easy to type there; the receiver switches immediately) |
 | Passive Mode           | **On**                                                       |
 
 Then `Server Setting → Server 1 → Connect` and confirm you see **Connected**.
 
-### Importing the server certificate
+### About the certificate
 
-The receiver uses a self-signed certificate by default. To have the camera
-verify it, export the cert (`infra/ingest/export-cert.sh`, or copy
-`/etc/ssl/private/pure-ftpd.pem` from the instance), save it as
-`PRIVATE/SONY/CERT/cacert.pem` ... (follow MENU → Network → Network Option →
-Import Root Certificate) on a memory card, and import. Until then set
-*Root Certificate Error → Connect*.
+With a domain configured, the receiver obtains a Let's Encrypt certificate for
+`ftp.picket.photos` within about 15 minutes of the first deploy and renews it
+automatically. Whether the camera trusts Let's Encrypt's root depends on
+Sony's built-in root store, so try *Does Not Connect* first. If the camera
+shows a certificate error, use *Connect*: the connection is still encrypted,
+the camera just skips verifying who it's talking to. Until DNS is delegated the
+receiver serves a self-signed certificate, which always needs *Connect*.
 
 ## 3. Transfer rules
 

@@ -1,0 +1,166 @@
+name: ops
+
+# Day-to-day buttons: status, start/stop the receiver (saves ~$3/mo when idle),
+# redrive failed Lightroom uploads, show recent uploader errors, or destroy.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Action
+        type: choice
+        default: status
+        options: [status, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
+      confirm:
+        description: Type "destroy" to confirm the destroy action
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: picket-aws
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  STACK: Picket
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.action == 'destroy'
+      - uses: actions/setup-node@v4
+        if: inputs.action == 'destroy'
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        if: inputs.action == 'destroy'
+        with: { python-version: "3.12" }
+
+      - name: Pick credential mode
+        id: mode
+        env:
+          ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -n "$ROLE" ]; then echo "mode=oidc" >> "$GITHUB_OUTPUT";
+          elif [ -n "$KEY" ]; then echo "mode=keys" >> "$GITHUB_OUTPUT";
+          else echo "::error::Set AWS_DEPLOY_ROLE_ARN (OIDC) or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in repository secrets"; exit 1; fi
+      - if: steps.mode.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - if: steps.mode.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Read stack outputs
+        id: outs
+        run: |
+          aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs' > outputs.json
+          out() { jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue' outputs.json; }
+          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl; do
+            echo "$k=$(out $k)" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Status
+        if: inputs.action == 'status'
+        env:
+          IID: ${{ steps.outs.outputs.ReceiverInstanceId }}
+          TABLE: ${{ steps.outs.outputs.Table }}
+          Q: ${{ steps.outs.outputs.UploadQueueUrl }}
+          DLQ: ${{ steps.outs.outputs.UploadDlqUrl }}
+        run: |
+          set -euo pipefail
+          count() { aws dynamodb query --table-name "$TABLE" --index-name "$1" --select COUNT \
+            --key-condition-expression "#k = :v" --expression-attribute-names "{\"#k\":\"$2\"}" \
+            --expression-attribute-values "{\":v\":{\"S\":\"$3\"}}" --query Count --output text; }
+          state=$(aws ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].State.Name' --output text)
+          qd=$(aws sqs get-queue-attributes --queue-url "$Q" --attribute-names ApproximateNumberOfMessages --query Attributes.ApproximateNumberOfMessages --output text)
+          dd=$(aws sqs get-queue-attributes --queue-url "$DLQ" --attribute-names ApproximateNumberOfMessages --query Attributes.ApproximateNumberOfMessages --output text)
+          {
+            echo "## Picket status"
+            echo
+            echo "**Receiver** \`${{ steps.outs.outputs.ReceiverIp }}\`: $state"
+            echo
+            echo "| photos | count |"; echo "|---|---|"
+            for s in unreviewed pick reject; do echo "| $s | $(count byStatus status $s) |"; done
+            echo
+            echo "| Lightroom | count |"; echo "|---|---|"
+            for s in queued uploading done duplicate failed; do echo "| $s | $(count byLightroomStatus lightroomStatus $s) |"; done
+            echo
+            echo "Upload queue: $qd waiting · dead-letter: $dd"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Receiver start/stop
+        if: inputs.action == 'receiver-start' || inputs.action == 'receiver-stop'
+        env:
+          IID: ${{ steps.outs.outputs.ReceiverInstanceId }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.action }}" = "receiver-start" ]; then
+            aws ec2 start-instances --instance-ids "$IID" >/dev/null
+            aws ec2 wait instance-running --instance-ids "$IID"
+            echo "Receiver started. The camera can connect to ${{ steps.outs.outputs.ReceiverIp }} in about a minute." >> "$GITHUB_STEP_SUMMARY"
+          else
+            aws ec2 stop-instances --instance-ids "$IID" >/dev/null
+            aws ec2 wait instance-stopped --instance-ids "$IID"
+            echo "Receiver stopped. The Elastic IP is kept, so the camera settings stay valid." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Reload the camera password on the receiver
+        if: inputs.action == 'reload-ftp-password'
+        env:
+          IID: ${{ steps.outs.outputs.ReceiverInstanceId }}
+        run: |
+          set -euo pipefail
+          cmd=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript --comment "picket: reload ftp password" \
+            --parameters 'commands=["/usr/local/bin/picket-set-ftp-password.sh"]' --query Command.CommandId --output text)
+          for i in $(seq 1 30); do
+            st=$(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$st" in Success) break;; Failed|Cancelled|TimedOut) echo "::error::reload $st"; aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query StandardErrorContent --output text; exit 1;; esac
+            sleep 5
+          done
+          echo "Receiver now uses the password currently stored in Secrets Manager. Update the camera to match." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Redrive dead-letter queue
+        if: inputs.action == 'redrive-dlq'
+        env:
+          Q: ${{ steps.outs.outputs.UploadQueueUrl }}
+          DLQ: ${{ steps.outs.outputs.UploadDlqUrl }}
+        run: |
+          set -euo pipefail
+          src=$(aws sqs get-queue-attributes --queue-url "$DLQ" --attribute-names QueueArn --query Attributes.QueueArn --output text)
+          dst=$(aws sqs get-queue-attributes --queue-url "$Q" --attribute-names QueueArn --query Attributes.QueueArn --output text)
+          task=$(aws sqs start-message-move-task --source-arn "$src" --destination-arn "$dst" --query TaskHandle --output text)
+          echo "Redrive started (task $task). Picks go back through the uploader; watch them under Picks in the app." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Recent uploader errors
+        if: inputs.action == 'uploader-errors'
+        env:
+          LG: ${{ steps.outs.outputs.UploaderLogGroup }}
+        run: |
+          set -euo pipefail
+          since=$(( ($(date +%s) - 24*3600) * 1000 ))
+          {
+            echo "## Uploader log lines with errors, last 24h"
+            echo '```'
+            aws logs filter-log-events --log-group-name "$LG" --start-time "$since" --filter-pattern '?ERROR ?failed ?Adobe' \
+              --query 'events[-40:].[timestamp,message]' --output text | sed 's/\t/  /' | cut -c1-400 || echo "(no log group yet)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Destroy
+        if: inputs.action == 'destroy'
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "destroy" ]; then echo "::error::type destroy in the confirm box"; exit 1; fi
+          (cd services/api && npm ci) && (cd infra && npm ci && npx cdk destroy --force)
+          echo "Stack destroyed. The photos bucket and the Photos table are RETAINed and still exist." >> "$GITHUB_STEP_SUMMARY"

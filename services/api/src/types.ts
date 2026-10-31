@@ -83,6 +83,23 @@ export interface LightroomStatusView {
   oauth: { clientId: string; scopes: string[]; redirectUri: string; authorizeUrl: string; tokenUrl: string };
 }
 
+/** What the camera needs, read from the app's Camera screen. */
+export interface ReceiverSettings {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  secureProtocol: true;
+  passiveMode: true;
+  passivePorts: string;
+  /** EC2 state: running, stopped, pending, stopping... */
+  instanceState: string;
+  /** After a rotation: whether the receiver has picked the new password up. */
+  passwordReload?: 'applied' | 'pending' | 'failed';
+}
+
+export type ReceiverPowerAction = 'start' | 'stop';
+
 export interface ConnectRequest {
   refreshToken: string;
   accessToken?: string;

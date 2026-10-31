@@ -129,3 +129,29 @@ are the defaults in `infra/bin/picket.ts`.
 **Open item to confirm on the first real upload.** The `Content-Type` Lightroom
 accepts for `.ARW` masters (`image/x-sony-arw` by default;
 `LIGHTROOM_RAW_CONTENT_TYPE` overrides it if Adobe answers 415).
+
+## ADR-007: Phone-only operations; GitHub holds only AWS and Expo credentials
+
+**Context.** The operator runs everything from a phone. GitHub Actions is the
+only executor. Camera settings should be managed in the app, not in a console.
+
+**Decision.**
+- Every operation is a `workflow_dispatch` button: `deploy`, `ops`,
+  `app-build`. Results go to the run summary; no secret is ever printed.
+- GitHub secrets: AWS credentials (keys or an OIDC role), `EXPO_TOKEN`, the
+  Apple Team key, and `PICKET_API_TOKEN` (the app's pairing token, which has to
+  be provisioned somewhere the app isn't). Secrets Manager holds only machine
+  state: the camera password (managed through the app's Camera tab, which
+  rotates it and reloads the receiver over SSM), the API token copy, the iOS
+  signing material, and the Lightroom OAuth tokens.
+- iOS signing goes through the App Store Connect API from the workflow, because
+  EAS CLI will not create a distribution certificate non-interactively.
+- `picket.photos` is wired through one Route 53 zone: `ftp.` for the receiver
+  (Let's Encrypt via certbot on the instance) and `api.` for the HTTP API (ACM).
+  The API domain is only created once delegation is confirmed, so a
+  not-yet-propagated registrar change can't stall a deploy.
+
+**Consequences.** The camera password, and the receiver's on/off switch, are a
+tap in the app. Adding a phone is two buttons. Nothing in the
+repo or in GitHub can sign an iOS app or log into Lightroom; the AWS account is
+the single trust root.

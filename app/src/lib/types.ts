@@ -56,6 +56,20 @@ export interface LightroomStatusView {
   oauth: { clientId: string; scopes: string[]; redirectUri: string; authorizeUrl: string; tokenUrl: string };
 }
 
+export interface ReceiverSettings {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  secureProtocol: true;
+  passiveMode: true;
+  passivePorts: string;
+  instanceState: string;
+  passwordReload?: 'applied' | 'pending' | 'failed';
+}
+
+export type ReceiverPowerAction = 'start' | 'stop';
+
 export interface ConnectRequest {
   refreshToken: string;
   accessToken?: string;

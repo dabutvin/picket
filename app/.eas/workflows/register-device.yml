@@ -1,0 +1,20 @@
+# Enroll an iPhone for ad hoc builds without a computer. Started by the GitHub
+# "app-build" workflow (action: register-device). The run page shows a link/QR
+# code; open it on the phone, install the profile, then approve on expo.dev.
+name: Register iPhone for Picket builds
+run_name: Register device (team ${{ inputs.team_id }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_id:
+        type: string
+        required: true
+        description: Apple Team ID (developer.apple.com → Membership details)
+
+jobs:
+  register_device:
+    name: Enroll device
+    type: apple-device-registration-request
+    params:
+      apple_team_identifier: ${{ inputs.team_id }}

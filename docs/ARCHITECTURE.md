@@ -44,7 +44,8 @@ required, passive mode on a fixed port range, and an Elastic IP. pure-ftpd's
 See `docs/DECISIONS.md` ADR-001 for why this beats AWS Transfer Family here.
 
 In the field the camera joins the phone's personal hotspot (or any Wi‑Fi) and
-pushes to the receiver's public IP. If the connection drops, the camera queues
+pushes to `ftp.picket.photos` (an A record on the Elastic IP; the receiver
+holds a Let's Encrypt certificate for it, self-signed until DNS is live). If the connection drops, the camera queues
 and resumes when it reconnects (Sony documents this behaviour).
 
 ### 2. Processing
@@ -150,9 +151,14 @@ Manager and is checked by a Lambda authorizer. Single user for now.
 | POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
 | POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
 | DELETE | `/lightroom`                |                                     | forgets the tokens |
+| GET    | `/receiver`                 |                                     | camera settings: host, port, user, password, passive ports, receiver instance state |
+| POST   | `/receiver/password`        | `{ password? }` (8–64 letters/digits; generated if omitted) | stores it, reloads the receiver over SSM, returns settings |
+| POST   | `/receiver/power`           | `{ action: "start" \| "stop" }`    | starts/stops the receiver instance |
 
 Tokens never come back out of the API, and there is no route that presigns a
-RAW: the API role can only read `previews/` and `thumbs/`.
+RAW: the API role can only read `previews/` and `thumbs/`. The API is served at
+`https://api.picket.photos` once the domain is delegated (ACM certificate, API
+Gateway custom domain), and at the default `execute-api` URL before that.
 
 ## Repo layout
 
@@ -162,7 +168,7 @@ infra/           AWS CDK (TypeScript). One stack: PicketStack
 infra/ingest/    cloud-init + upload hook for the FTPS receiver
 services/preview Python Lambda: ARW → previews + DynamoDB
 services/api     TypeScript Lambdas: HTTP API + authorizer, stream router, Lightroom uploader
-app/             Expo app (swipe review, picks, skipped, connect Lightroom)
+app/             Expo app (swipe review, picks, skipped, camera settings, connect Lightroom)
 ```
 
 ## Costs (us-east-1, rough, per month)
@@ -172,6 +178,7 @@ app/             Expo app (swipe review, picks, skipped, connect Lightroom)
 | t4g.nano receiver, on 24/7             | ~$3    |
 | public IPv4 (Elastic IP)               | ~$3.65 |
 | 8 GB gp3 root volume                   | ~$0.65 |
+| Route 53 hosted zone for picket.photos | $0.50  |
 | S3 standard, 50 GB of RAW              | ~$1.15 |
 | Lambda, DynamoDB, SQS, API Gateway at hobby volume | <$1 |
 | Secrets Manager, 3 secrets                | ~$1.20 |

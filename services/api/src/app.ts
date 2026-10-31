@@ -2,6 +2,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from '
 import { AdobeError, IMS_AUTHORIZE_URL, IMS_TOKEN_URL, LightroomClient, refreshTokens, type FetchFn } from './adobe.js';
 import { ensureAccessToken, type ConnectionStore } from './connection.js';
 import { BadCursor, type Store } from './store.js';
+import { BadPassword, type createReceiverService } from './receiver.js';
 import {
   LIGHTROOM_STATUSES,
   PHOTO_STATUSES,
@@ -32,6 +33,7 @@ export interface AppDeps {
   store: Store;
   connections: ConnectionStore;
   lightroom: LightroomConfig;
+  receiver: ReturnType<typeof createReceiverService>;
   fetchFn?: FetchFn;
 }
 
@@ -54,7 +56,7 @@ const parseBody = <T>(event: APIGatewayProxyEventV2): T | undefined => {
   }
 };
 
-export function createApp({ store, connections, lightroom, fetchFn = fetch }: AppDeps) {
+export function createApp({ store, connections, lightroom, receiver, fetchFn = fetch }: AppDeps) {
   async function withUrls(item: PhotoItem): Promise<Photo> {
     const [previewUrl, thumbUrl] = await Promise.all([
       store.signGet(item.previewKey, PREVIEW_URL_TTL),
@@ -209,9 +211,37 @@ export function createApp({ store, connections, lightroom, fetchFn = fetch }: Ap
     }
   }
 
+  async function receiverGet(): Promise<Result> {
+    return json(200, await receiver.get());
+  }
+
+  async function receiverPassword(event: APIGatewayProxyEventV2): Promise<Result> {
+    const body = parseBody<{ password?: unknown }>(event);
+    if (!body) return error(400, 'body must be JSON');
+    if (body.password !== undefined && typeof body.password !== 'string') return error(400, 'password must be a string');
+    try {
+      return json(200, await receiver.rotatePassword(body.password));
+    } catch (err) {
+      if (err instanceof BadPassword) return error(400, err.message);
+      throw err;
+    }
+  }
+
+  async function receiverPower(event: APIGatewayProxyEventV2): Promise<Result> {
+    const body = parseBody<{ action?: unknown }>(event);
+    if (body?.action !== 'start' && body?.action !== 'stop') return error(400, 'action must be start or stop');
+    return json(200, await receiver.power(body.action));
+  }
+
   return async function handle(event: APIGatewayProxyEventV2): Promise<Result> {
     try {
       switch (event.routeKey) {
+        case 'GET /receiver':
+          return await receiverGet();
+        case 'POST /receiver/password':
+          return await receiverPassword(event);
+        case 'POST /receiver/power':
+          return await receiverPower(event);
         case 'GET /photos':
           return await listPhotos(event);
         case 'POST /photos/{id}/decision':

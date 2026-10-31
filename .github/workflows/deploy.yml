@@ -1,0 +1,152 @@
+name: deploy
+
+# Deploys (or diffs) the Picket stack from a phone-friendly "Run workflow" button.
+# Credentials come from repository secrets; see docs/OPERATIONS.md.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        type: choice
+        default: deploy
+        options: [deploy, diff]
+
+permissions:
+  id-token: write # for the optional OIDC role
+  contents: read
+
+concurrency:
+  group: picket-aws
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  STACK: Picket
+  DOMAIN_NAME: ${{ vars.DOMAIN_NAME || 'picket.photos' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: "infra/package-lock.json" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: Pick credential mode
+        id: mode
+        env:
+          ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -n "$ROLE" ]; then echo "mode=oidc" >> "$GITHUB_OUTPUT";
+          elif [ -n "$KEY" ]; then echo "mode=keys" >> "$GITHUB_OUTPUT";
+          else echo "::error::Set AWS_DEPLOY_ROLE_ARN (OIDC) or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in repository secrets"; exit 1; fi
+      - name: AWS credentials (OIDC role)
+        if: steps.mode.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: AWS credentials (access keys)
+        if: steps.mode.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: npm ci
+        working-directory: services/api
+      - run: npm ci
+        working-directory: infra
+
+      - name: Resolve DNS zone for ${{ env.DOMAIN_NAME }}
+        id: dns
+        run: |
+          set -euo pipefail
+          zone_id="$(aws route53 list-hosted-zones-by-name --dns-name "$DOMAIN_NAME." --max-items 1 \
+            --query "HostedZones[?Name=='${DOMAIN_NAME}.'] | [0].Id" --output text 2>/dev/null | sed 's|/hostedzone/||')"
+          if [ -z "$zone_id" ] || [ "$zone_id" = "None" ]; then
+            echo "No Route 53 hosted zone for $DOMAIN_NAME; creating one"
+            zone_id="$(aws route53 create-hosted-zone --name "$DOMAIN_NAME" --caller-reference "picket-$(date +%s)" \
+              --hosted-zone-config Comment="Picket" --query HostedZone.Id --output text | sed 's|/hostedzone/||')"
+          fi
+          zone_ns="$(aws route53 get-hosted-zone --id "$zone_id" --query 'DelegationSet.NameServers' --output text | tr '\t' '\n' | sed 's/\.$//' | sort)"
+          # If the domain is registered with Route 53 Domains in this account, point it at the zone (idempotent).
+          if aws route53domains get-domain-detail --region us-east-1 --domain-name "$DOMAIN_NAME" >/dev/null 2>&1; then
+            current_ns="$(aws route53domains get-domain-detail --region us-east-1 --domain-name "$DOMAIN_NAME" --query 'Nameservers[].Name' --output text | tr '\t' '\n' | sed 's/\.$//' | sort)"
+            if [ "$current_ns" != "$zone_ns" ]; then
+              echo "Updating registrar name servers to the hosted zone"
+              args=(); for ns in $zone_ns; do args+=("Name=$ns"); done
+              aws route53domains update-domain-nameservers --region us-east-1 --domain-name "$DOMAIN_NAME" --nameservers "${args[@]}" >/dev/null
+            fi
+          fi
+          public_ns="$(dig +short NS "$DOMAIN_NAME" @1.1.1.1 | sed 's/\.$//' | sort || true)"
+          delegated=false; [ -n "$public_ns" ] && [ "$public_ns" = "$zone_ns" ] && delegated=true
+          echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
+          echo "delegated=$delegated" >> "$GITHUB_OUTPUT"
+          printf 'ns<<EOF\n%s\nEOF\n' "$zone_ns" >> "$GITHUB_OUTPUT"
+          echo "zone=$zone_id delegated=$delegated"
+
+      - name: Bootstrap CDK (idempotent)
+        if: inputs.action == 'deploy'
+        working-directory: infra
+        run: npx cdk bootstrap
+
+      - name: cdk diff
+        if: inputs.action == 'diff'
+        working-directory: infra
+        run: npx cdk diff -c domainName="$DOMAIN_NAME" -c hostedZoneId="${{ steps.dns.outputs.zone_id }}" -c dnsDelegated="${{ steps.dns.outputs.delegated }}" 2>&1 | tee "$GITHUB_STEP_SUMMARY"
+
+      - name: cdk deploy
+        if: inputs.action == 'deploy'
+        working-directory: infra
+        run: npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c hostedZoneId="${{ steps.dns.outputs.zone_id }}" -c dnsDelegated="${{ steps.dns.outputs.delegated }}"
+
+      - name: Apply the app token
+        if: inputs.action == 'deploy'
+        env:
+          API_TOKEN: ${{ secrets.PICKET_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          out() { jq -r ".${STACK}.$1" infra/outputs.json; }
+          if [ -z "$API_TOKEN" ]; then
+            echo "::warning::PICKET_API_TOKEN is not set. The API keeps an AWS-generated token the app can't know; add the secret (any long random string) and run deploy again to pair the app."
+            echo "token_state=missing" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          cur="$(aws secretsmanager get-secret-value --secret-id "$(out ApiTokenSecret)" --query SecretString --output text)"
+          [ "$cur" = "$API_TOKEN" ] || aws secretsmanager put-secret-value --secret-id "$(out ApiTokenSecret)" --secret-string "$API_TOKEN" >/dev/null
+          echo "token_state=set" >> "$GITHUB_ENV"
+
+      - name: Summary
+        if: inputs.action == 'deploy'
+        run: |
+          out() { jq -r ".${STACK}.$1" infra/outputs.json; }
+          {
+            echo "## Picket deployed to \`$AWS_REGION\`"
+            echo
+            echo "| output | value |"
+            echo "|---|---|"
+            for k in ApiUrl FtpHost ReceiverIp FtpUser Domain LightroomClientId LightroomRedirectUri Bucket Table ReceiverInstanceId UploaderLogGroup UploadQueueUrl UploadDlqUrl; do
+              v="$(out $k)"; [ "$v" = "null" ] || echo "| \`$k\` | \`$v\` |"
+            done
+            echo
+            if [ "${token_state:-missing}" = "set" ]; then
+              echo "- App: Settings → API URL = \`$(out ApiUrl)\`, Token = your \`PICKET_API_TOKEN\` secret → Connect Lightroom."
+            else
+              echo "- **Add the \`PICKET_API_TOKEN\` repository secret (any long random string) and run deploy again**; then the app pairs with API URL = \`$(out ApiUrl)\` and that token."
+            fi
+            echo "- Camera: the app's **Camera** tab shows host, user and password with copy buttons, rotates the password, and starts/stops the receiver."
+            echo
+            if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
+              echo "DNS: \`$DOMAIN_NAME\` is delegated to the hosted zone; the receiver obtains a Let's Encrypt certificate for \`ftp.$DOMAIN_NAME\` within ~15 minutes."
+            else
+              echo "DNS: \`$DOMAIN_NAME\` is **not yet delegated** to the hosted zone. If the domain is registered outside Route 53, set these name servers at the registrar, wait for propagation, then run deploy again to enable \`api.$DOMAIN_NAME\`:"
+              echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
+            fi
+            echo
+            echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."
+          } >> "$GITHUB_STEP_SUMMARY"
