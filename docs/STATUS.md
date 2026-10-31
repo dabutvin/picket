@@ -1,7 +1,7 @@
 # Status and handoff
 
-Last updated: 2026-10-31, after the send-to-Lightroom / carousel change (#25).
-**Read this first.** The rest of `docs/` describes the intended system; this file says what
+Last updated: 2026-10-31, after the send-to-Lightroom / carousel change (#25)
+and the UI preview workflow (#26). **Read this first.** The rest of `docs/` describes the intended system; this file says what
 is real, what to do next, and how the previous agents operated it.
 
 ## In one line
@@ -15,15 +15,16 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 ## Resume here
 
-0. **Deploy and build #25** (`deploy` for the API + new route, `app-build →
-   build production ios` for TestFlight). The app now has a Review carousel
-   (left/right browse, flick up = pick, flick down = skip), picks wait on the
-   Picks tab until **Send all to Lightroom** (or a long-press selection), and
-   sent photos move to a Sent tab. Picks delivered before #25 move to Sent
-   the first time the Picks tab loads; no ops run needed. Until both are
-   deployed, an old app against the new API still works (its picks simply
-   stop auto-uploading), and the new app against the old API shows an alert
-   on the Sent tab.
+0. ~~Deploy and build #25~~ Done 2026-10-31 17:24Z: `deploy` #16 (Lambda
+   only) and `app-build` #7 → EAS build 3 → TestFlight, auto-submitted. The
+   app now has a Review carousel (left/right browse, flick up = pick, flick
+   down = skip), picks wait on the Picks tab until **Send all to Lightroom**
+   (or a long-press selection), and sent photos move to a Sent tab. Picks
+   delivered before #25 move to Sent the first time the Picks tab loads.
+   **Not yet felt on a phone**: the carousel's flick threshold (22% of screen
+   height or a fast fling) and whether a diagonal swipe ever stalls; ask the
+   owner after they try build 3. #26 (sample-photos mode, UI preview comment
+   on PRs) needs no deploy; the sample mode ships with the next `app-build`.
 1. ~~Run the photo-id migration~~ Done 2026-10-31 16:22Z (`ops` run 13,
    confirm=`migrate`): 642 rows, 526 moved to the frame-based id, 116 already
    current, no merges, no skips. Camera re-sends are now safe on any day
@@ -75,7 +76,8 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 |---|---|
 | `deploy` | 15 runs. #8 created the stack; #9–#11 replaced the receiver after cloud-init fixes; #12–#15 updated Lambdas only (~2 min, no receiver impact) |
 | `infra/ingest/cloud-init.sh` | boots cleanly; Let's Encrypt certificate ~10 s after boot |
-| `app-build` register-device / build preview / build production | all worked: ad hoc install from the EAS link; TestFlight via `--auto-submit` with the App Store Connect app looked up by bundle id |
+| `app-build` register-device / build preview / build production | all worked: ad hoc install from the EAS link; TestFlight via `--auto-submit` with the App Store Connect app looked up by bundle id (builds 2 and 3) |
+| `ui-preview` | first run on #26: web export + 10 screenshots in ~2 min, comment posted, images load from the `ui-previews` branch |
 | `ops` | `pairing-code`, `receiver-logs`, `lightroom-debug`, `migrate-photo-ids` (dry run + apply) used and working; `status`, `dns`, `uploader-errors`, `redrive-dlq`, `reload-ftp-password`, receiver start/stop not yet exercised |
 | camera → receiver | FTPES, TLSv1.2 against the Let's Encrypt certificate, *Root Certificate Error → Connect*; uploads 45–46 MB at 4–8 MB/s. An 800-photo card dump ran at ~4 MB/s (the t4g.nano network baseline, 0.032 Gbps) until the camera battery died; the owner chose to keep the nano and send incrementally |
 | receiver → S3 → previews → app | per-shot hook works since #14 (the first two photos went through the 5-minute sweep instead) |
@@ -101,6 +103,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #21 | Adobe 415 `InvalidContentTypeError` on `image/x-sony-arw` | ARW masters sent as `application/octet-stream` |
 | #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moved the 526 existing rows (applied 16:22Z) |
 | #25 | every swipe right uploaded at once; sent photos lingered in Picks | picking only stages; Picks tab sends in a batch (`POST /lightroom/send`); uploader marks `status = sent`; Sent tab; Review is a carousel (ADR-008) |
+| #26 | UI changes could only be judged after a TestFlight build | sample-photos mode (`app/src/lib/demo.ts`); `ui-preview` workflow screenshots every screen on PRs touching `app/` |
 
 ## External accounts and secrets (names only)
 
@@ -147,13 +150,17 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 - **Conventions**: one PR per fix, squash-merged as "title (#N)", commit body
   stating the live failure; CI green first; the owner authorized merging during
   these sessions. Branches `fix/…`, `ops/…`, `docs/…`, `feat/…`.
-- **UI changes are previewed in the PR.** The `ui-preview` workflow comments
-  screenshots of every screen (web build, sample photos) on any PR touching
-  `app/`; look at them before merging, and extend
-  `app/scripts/ui-screenshots.mjs` when adding a screen. The images are raw
-  URLs on the `ui-previews` branch, which stop rendering in comments if the
-  repository goes private (the `ui-screenshots` artifact on the run still has
-  them).
+- **UI work has its own loop; read `app/AGENTS.md` ("Picket: how UI work is
+  done here") before touching `app/src/`.** In short: build against the
+  sample photos (`app/src/lib/demo.ts`), export the web build and run
+  `app/scripts/ui-screenshots.mjs` in the session, look at the PNGs yourself,
+  extend the script for every new screen or state, then read the PR's
+  **UI preview** comment (posted by `.github/workflows/ui-preview.yml` on any
+  PR touching `app/`). Gestures can only be felt on a phone: say so in the PR
+  and ship to TestFlight after merging (`deploy` if the API changed, then
+  `app-build` production ios). The preview images are raw URLs on the
+  `ui-previews` branch and stop rendering in comments if the repository goes
+  private (the `ui-screenshots` artifact on the run still has them).
 - **Harmless leftovers in S3** from the interrupted card dump on Oct 31:
   `session.db` (the camera's FTP bookkeeping file, not a photo) and a
   truncated `DSC03799.ARW` (6.8 MB, the file in flight when the battery died;

@@ -26,7 +26,7 @@ Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
 | `infra/ingest/`     | cloud-init + upload hook for the FTPS receiver              | rendered into the stack  |
 | `services/preview/` | Python Lambda: ARW → embedded-JPEG previews + DynamoDB row  | `pytest`                 |
 | `services/api/`     | Node Lambdas: HTTP API + authorizer, stream router, Lightroom uploader | `npm test`    |
-| `app/`              | Expo app: review carousel, picks + send to Lightroom, sent, skipped, camera settings | `npm run typecheck` |
+| `app/`              | Expo app: review carousel, picks + send to Lightroom, sent, skipped, camera settings | `npm run typecheck`; UI: see `app/AGENTS.md` and the **UI preview** comment on PRs |
 
 ## Getting started (no terminal)
 
