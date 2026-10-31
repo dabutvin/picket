@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, pairing-code, dns, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action
         required: false
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code'
+        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
@@ -148,6 +148,27 @@ jobs:
             aws ec2 wait instance-stopped --instance-ids "$IID"
             echo "Receiver stopped. The Elastic IP is kept, so the camera settings stay valid." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Receiver health report
+        if: inputs.action == 'receiver-logs'
+        env:
+          IID: ${{ steps.outs.outputs.ReceiverInstanceId }}
+        run: |
+          set -euo pipefail
+          [ "$IID" != "(receiver not deployed)" ] || { echo "::error::The receiver is not deployed"; exit 1; }
+          # The whole script goes to SSM as one command; AWS-RunShellScript runs it as a file.
+          jq -n --rawfile s infra/ingest/diagnose.sh '{commands: [$s], executionTimeout: ["120"]}' > params.json
+          cmd=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript --comment "picket: receiver health report" \
+            --parameters file://params.json --query Command.CommandId --output text)
+          for i in $(seq 1 40); do
+            st=$(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$st" in Pending|InProgress|Delayed) sleep 5;; *) break;; esac
+          done
+          echo "SSM status: $st"
+          aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query StandardOutputContent --output text | tee report.txt
+          echo "--- stderr ---"; aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query StandardErrorContent --output text
+          { echo "## Receiver health report (\`$IID\`, SSM $st)"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$st" = "Success" ]
 
       - name: Reload the camera password on the receiver
         if: inputs.action == 'reload-ftp-password'
