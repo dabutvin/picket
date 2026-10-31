@@ -67,6 +67,7 @@ couple of minutes. Running it when nothing changed is harmless.
 |---|---|
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
+| `receiver-logs` | health report from the instance over Session Manager: cloud-init result, pure-ftpd state and log, certificate in use, Picket log lines. First stop when the camera can't connect. |
 | `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
 | `reload-ftp-password` | force the receiver to re-read the camera password (the app does this itself after a change; this is the manual fallback) |
