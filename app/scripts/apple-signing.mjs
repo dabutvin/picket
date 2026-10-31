@@ -360,7 +360,39 @@ if (cmd === 'self-test') {
       process.exit(1);
     },
   );
+} else if (cmd === 'app-id') {
+  // Numeric App Store Connect id of the app record for this bundle id (EAS Submit needs it as ascAppId).
+  const appJson = existsSync('app.json') ? JSON.parse(readFileSync('app.json', 'utf8')).expo : {};
+  const bundleId = process.env.BUNDLE_ID ?? appJson.ios?.bundleIdentifier;
+  const auth = { keyId: process.env.ASC_KEY_ID, issuerId: process.env.ASC_ISSUER_ID, p8: process.env.ASC_API_KEY_P8 };
+  for (const [k, v] of Object.entries({ ASC_KEY_ID: auth.keyId, ASC_ISSUER_ID: auth.issuerId, ASC_API_KEY_P8: auth.p8, BUNDLE_ID: bundleId })) {
+    if (!v) {
+      console.error(`missing ${k}`);
+      process.exit(1);
+    }
+  }
+  new Asc(auth).list(`/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`).then(
+    (apps) => {
+      if (!apps.length) {
+        console.error(`No App Store Connect app has bundle id ${bundleId}. Create it once at https://appstoreconnect.apple.com/apps (My Apps → + → New App, bundle id ${bundleId}) and rerun.`);
+        process.exit(1);
+      }
+      console.log(apps[0].id);
+    },
+    (err) => {
+      console.error(err.message);
+      process.exit(1);
+    },
+  );
+} else if (cmd === 'write-p8') {
+  // Write the App Store Connect API key (ASC_API_KEY_P8, raw / escaped / base64) as a PEM file for EAS Submit.
+  const out = rest[0];
+  if (!out || !process.env.ASC_API_KEY_P8) {
+    console.error('usage: apple-signing.mjs write-p8 <path>  (needs ASC_API_KEY_P8)');
+    process.exit(1);
+  }
+  writeFileSync(out, normalizeP8(process.env.ASC_API_KEY_P8), { mode: 0o600 });
 } else {
-  console.error('usage: apple-signing.mjs ensure [--type adhoc|appstore] | self-test');
+  console.error('usage: apple-signing.mjs ensure [--type adhoc|appstore] | app-id | write-p8 <path> | self-test');
   process.exit(2);
 }

@@ -77,3 +77,6 @@ services/preview/tests/fixtures/*.ARW
 .env
 .env.*
 .DS_Store
+
+# App Store Connect API key written by the app-build workflow at run time
+app/asc.p8
