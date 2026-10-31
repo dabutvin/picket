@@ -99,8 +99,6 @@ export class Lightroom extends Construct {
       memorySize: 1024, // a 70 MB ARW is held in memory for the SHA-256 and the PUT
       ephemeralStorageSize: cdk.Size.mebibytes(512),
       timeout: cdk.Duration.minutes(2),
-      // Serial uploads: kind to Adobe's 429s and keeps one user's uploads in order.
-      reservedConcurrentExecutions: 1,
       environment: {
         PHOTOS_TABLE: props.table.tableName,
         PHOTOS_BUCKET: props.bucket.bucketName,
@@ -117,8 +115,10 @@ export class Lightroom extends Construct {
     props.bucket.grantRead(this.uploader, 'raw/*');
     this.connection.grantRead(this.uploader);
     this.connection.grantWrite(this.uploader); // rotated refresh tokens, album id
+    // Near-serial uploads (SQS event-source maxConcurrency floors at 2): kind to Adobe's 429s
+    // without reserving function concurrency, which small accounts' Lambda quotas can't spare.
     this.uploader.addEventSource(
-      new SqsEventSource(this.queue, { batchSize: 1, reportBatchItemFailures: true }),
+      new SqsEventSource(this.queue, { batchSize: 1, reportBatchItemFailures: true, maxConcurrency: 2 }),
     );
 
     new cdk.CfnOutput(this, 'UploadDlqUrl', { value: this.deadLetter.queueUrl, description: 'Picks that failed 6 times' });
