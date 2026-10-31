@@ -105,6 +105,20 @@ jobs:
         working-directory: infra
         run: npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c hostedZoneId="${{ steps.dns.outputs.zone_id }}" -c dnsDelegated="${{ steps.dns.outputs.delegated }}"
 
+      - name: Apply the app token
+        if: inputs.action == 'deploy'
+        env:
+          API_TOKEN: ${{ secrets.PICKET_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          out() { jq -r ".${STACK}.$1" infra/outputs.json; }
+          if [ -z "$API_TOKEN" ]; then
+            echo "::error::Set the PICKET_API_TOKEN secret (any long random string). It is the token you paste into the app's Settings; the API accepts only that value."
+            exit 1
+          fi
+          cur="$(aws secretsmanager get-secret-value --secret-id "$(out ApiTokenSecret)" --query SecretString --output text)"
+          [ "$cur" = "$API_TOKEN" ] || aws secretsmanager put-secret-value --secret-id "$(out ApiTokenSecret)" --secret-string "$API_TOKEN" >/dev/null
+
       - name: Summary
         if: inputs.action == 'deploy'
         run: |
@@ -118,9 +132,8 @@ jobs:
               v="$(out $k)"; [ "$v" = "null" ] || echo "| \`$k\` | \`$v\` |"
             done
             echo
-            echo "- Camera password: AWS console → Secrets Manager → \`$(out FtpPasswordSecret)\` → Retrieve secret value (edit it to pick your own, then run ops → reload-ftp-password)."
-            echo "- App token: AWS console → Secrets Manager → \`$(out ApiTokenSecret)\` → Retrieve secret value."
-            echo "- Apple key for app builds: AWS console → Secrets Manager → \`picket/apple\` → fill teamId, keyId, issuerId, p8."
+            echo "- App: Settings → API URL = \`$(out ApiUrl)\`, Token = your \`PICKET_API_TOKEN\` secret → Connect Lightroom."
+            echo "- Camera: the app's **Camera** tab shows host, user and password with copy buttons, rotates the password, and starts/stops the receiver."
             echo
             if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
               echo "DNS: \`$DOMAIN_NAME\` is delegated to the hosted zone; the receiver obtains a Let's Encrypt certificate for \`ftp.$DOMAIN_NAME\` within ~15 minutes."
@@ -129,7 +142,5 @@ jobs:
               echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
             fi
             echo
-            echo "Camera: Host Name = FtpHost, User = FtpUser, Secure Protocol On, Passive On (docs/CAMERA_SETUP.md)."
-            echo "App: Settings → API URL = ApiUrl, Token = API token → Connect Lightroom."
             echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."
           } >> "$GITHUB_STEP_SUMMARY"

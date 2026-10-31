@@ -42,13 +42,7 @@ export class PicketStack extends cdk.Stack {
       dns: zone && props.dns ? { zone, hostName: `ftp.${props.dns.domainName}` } : undefined,
     });
 
-    // Filled in by hand in the AWS console (Secrets Manager → picket/apple): the App Store
-    // Connect Team key the app-build workflow uses. Lives here so GitHub holds no Apple secrets.
-    new secretsmanager.Secret(this, 'AppleSecret', {
-      secretName: 'picket/apple',
-      description: 'Picket: App Store Connect Team API key (keyId, issuerId, p8) and Apple teamId, filled in by hand',
-      secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({ teamId: '', keyId: '', issuerId: '', p8: '' })),
-    });
+    // Internal state of app/scripts/apple-signing.mjs (iOS key, certificate, profile). Not user-facing.
     new secretsmanager.Secret(this, 'AppleSigningState', {
       secretName: 'picket/apple-signing',
       description: 'Picket: iOS signing key, certificate and profile, written by app/scripts/apple-signing.mjs',
@@ -76,6 +70,7 @@ export class PicketStack extends cdk.Stack {
       lightroom: props.lightroom,
       lightroomConnection: lightroom.connection,
       dns: zone && props.dns?.delegated ? { zone, hostName: `api.${props.dns.domainName}` } : undefined,
+      receiver,
     });
 
     new cdk.CfnOutput(this, 'Bucket', { value: storage.bucket.bucketName });

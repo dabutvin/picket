@@ -32,6 +32,7 @@ export class Receiver extends Construct {
   readonly ftpUser: string;
   readonly ftpPassword: secretsmanager.Secret;
   readonly instance: ec2.Instance;
+  readonly passivePorts: { min: number; max: number };
 
   constructor(scope: Construct, id: string, props: ReceiverProps) {
     super(scope, id);
@@ -39,6 +40,7 @@ export class Receiver extends Construct {
     const stack = cdk.Stack.of(this);
     this.ftpUser = props.ftpUser ?? 'camera';
     const pasv = props.passivePorts ?? { min: 30000, max: 30009 };
+    this.passivePorts = pasv;
 
     // Public-only VPC: one subnet, no NAT, nothing that costs money while idle.
     const vpc = new ec2.Vpc(this, 'Vpc', {

@@ -151,6 +151,9 @@ Manager and is checked by a Lambda authorizer. Single user for now.
 | POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
 | POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
 | DELETE | `/lightroom`                |                                     | forgets the tokens |
+| GET    | `/receiver`                 |                                     | camera settings: host, port, user, password, passive ports, receiver instance state |
+| POST   | `/receiver/password`        | `{ password? }` (8–64 letters/digits; generated if omitted) | stores it, reloads the receiver over SSM, returns settings |
+| POST   | `/receiver/power`           | `{ action: "start" \| "stop" }`    | starts/stops the receiver instance |
 
 Tokens never come back out of the API, and there is no route that presigns a
 RAW: the API role can only read `previews/` and `thumbs/`. The API is served at
@@ -165,7 +168,7 @@ infra/           AWS CDK (TypeScript). One stack: PicketStack
 infra/ingest/    cloud-init + upload hook for the FTPS receiver
 services/preview Python Lambda: ARW → previews + DynamoDB
 services/api     TypeScript Lambdas: HTTP API + authorizer, stream router, Lightroom uploader
-app/             Expo app (swipe review, picks, skipped, connect Lightroom)
+app/             Expo app (swipe review, picks, skipped, camera settings, connect Lightroom)
 ```
 
 ## Costs (us-east-1, rough, per month)

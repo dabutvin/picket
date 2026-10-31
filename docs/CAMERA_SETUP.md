@@ -28,8 +28,8 @@ Either:
 | Directory Settings → Specify Directory | `/` (leave default)                           |
 | Directory Hierarchy    | `Standard`                                                   |
 | Same File Name         | `Does Not Overwrite`                                         |
-| User Info → User       | `camera` (CDK output `FtpUser`)                              |
-| User Info → Password   | AWS console → Secrets Manager → the secret named in the deploy summary (edit it to something camera-friendly, then run `ops → reload-ftp-password`) |
+| User Info → User       | `camera` (shown in the app's Camera tab)                      |
+| User Info → Password   | from the app's **Camera** tab (set one that's easy to type there; the receiver switches immediately) |
 | Passive Mode           | **On**                                                       |
 
 Then `Server Setting → Server 1 → Connect` and confirm you see **Connected**.

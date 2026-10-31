@@ -4,6 +4,7 @@ import { createMemoryConnectionStore } from '../src/connection.js';
 import { BadCursor, type Store } from '../src/store.js';
 import type { LightroomConnection, LightroomStatus, PhotoItem, PhotoStatus } from '../src/types.js';
 import type { AppDeps } from '../src/app.js';
+import { createReceiverService, type ReceiverCloud, type ReceiverConfig } from '../src/receiver.js';
 
 export const item = (id: string, status: PhotoItem['status'] = 'unreviewed', extra: Partial<PhotoItem> = {}): PhotoItem => ({
   photoId: id,
@@ -43,10 +44,35 @@ export const connection = (extra: Partial<LightroomConnection> = {}): LightroomC
   ...extra,
 });
 
+export const receiverCfg: ReceiverConfig = { host: 'ftp.picket.photos', user: 'camera', passiveMin: 30000, passiveMax: 30009, passwordSecretId: 'sec', instanceId: 'i-1' };
+
+export function fakeCloud(initial = { password: 'OldPass123', state: 'running' }) {
+  const s = { ...initial, reloads: 0 };
+  const cloud: ReceiverCloud = {
+    getPassword: vi.fn(async () => s.password),
+    setPassword: vi.fn(async (v: string) => {
+      s.password = v;
+    }),
+    runReloadCommand: vi.fn(async () => {
+      s.reloads++;
+      return 'Success' as const;
+    }),
+    instanceState: vi.fn(async () => s.state),
+    start: vi.fn(async () => {
+      s.state = 'pending';
+    }),
+    stop: vi.fn(async () => {
+      s.state = 'stopping';
+    }),
+  };
+  return { cloud, s };
+}
+
 export const deps = (over: Partial<AppDeps> = {}): AppDeps => ({
   store: fakeStore(),
   connections: createMemoryConnectionStore(null),
   lightroom: { clientId: 'cid', scopes: ['openid'], redirectUri: 'adobe+x://adobeid/cid', albumName: 'Picket' },
+  receiver: createReceiverService(receiverCfg, fakeCloud().cloud),
   fetchFn: vi.fn(async () => new Response('{}', { status: 500 })) as unknown as typeof fetch,
   ...over,
 });

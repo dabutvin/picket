@@ -1,4 +1,4 @@
-import type { ConnectRequest, LightroomStatusView, Photo, PhotoPage, PhotoStatus, Stats } from './types';
+import type { ConnectRequest, LightroomStatusView, Photo, PhotoPage, PhotoStatus, ReceiverPowerAction, ReceiverSettings, Stats } from './types';
 import type { Settings } from './settings';
 
 export class ApiError extends Error {
@@ -19,6 +19,9 @@ export interface Api {
   connectLightroom(req: ConnectRequest): Promise<LightroomStatusView>;
   refreshLightroom(): Promise<LightroomStatusView>;
   disconnectLightroom(): Promise<LightroomStatusView>;
+  receiver(): Promise<ReceiverSettings>;
+  rotateReceiverPassword(password?: string): Promise<ReceiverSettings>;
+  receiverPower(action: ReceiverPowerAction): Promise<ReceiverSettings>;
 }
 
 export function createApi({ apiUrl, token }: Settings): Api {
@@ -55,5 +58,8 @@ export function createApi({ apiUrl, token }: Settings): Api {
     connectLightroom: (req) => post<LightroomStatusView>('/lightroom', req),
     refreshLightroom: () => post<LightroomStatusView>('/lightroom/refresh'),
     disconnectLightroom: () => call<LightroomStatusView>('/lightroom', { method: 'DELETE' }),
+    receiver: () => call<ReceiverSettings>('/receiver'),
+    rotateReceiverPassword: (password) => post<ReceiverSettings>('/receiver/password', password ? { password } : {}),
+    receiverPower: (action) => post<ReceiverSettings>('/receiver/power', { action }),
   };
 }
