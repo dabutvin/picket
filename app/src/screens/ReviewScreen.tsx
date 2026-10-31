@@ -29,6 +29,7 @@ export function ReviewScreen({ api }: { api: Api }) {
   const [decided, setDecided] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [grid, setGrid] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const command = useRef<((d: CardDecision) => void) | null>(null);
   const loadingRef = useRef(false);
   // The decision callbacks read the queue through a ref so their identity stays stable
@@ -160,11 +161,14 @@ export function ReviewScreen({ api }: { api: Api }) {
         keyOf={(p) => p.photoId}
         index={index}
         onIndexChange={setIndex}
-        renderItem={(photo, active) => <ReviewCard photo={photo} active={active} onDecision={onDecision} commandRef={command} />}
+        renderItem={(photo, active) => (
+          <ReviewCard photo={photo} active={active} onDecision={onDecision} commandRef={command} onZoomChange={active ? setZoomed : undefined} />
+        )}
         renderEnd={renderEnd}
+        enabled={!zoomed}
       />
 
-      {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around.</Text>}
+      {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around. Pinch or double-tap to zoom.</Text>}
 
       <View style={styles.actions}>
         <Button title="↓ Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
