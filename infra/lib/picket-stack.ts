@@ -25,6 +25,8 @@ export interface DnsSettings {
 export interface PicketStackProps extends cdk.StackProps {
   lightroom: LightroomSettings;
   dns?: DnsSettings;
+  /** Create the FTPS receiver instance (default true). */
+  receiver?: boolean;
 }
 
 /**
@@ -41,12 +43,15 @@ export class PicketStack extends cdk.Stack {
       ? route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.dns.hostedZoneId, zoneName: props.dns.domainName })
       : undefined;
 
-    const receiver = new Receiver(this, 'Receiver', {
-      bucket: storage.bucket,
-      rawPrefix: storage.rawPrefix,
-      // With a domain, the receiver always answers to ftp.<domain>; the A record is ours only in Route 53 mode.
-      dns: props.dns ? { zone, hostName: `ftp.${props.dns.domainName}` } : undefined,
-    });
+    const receiver =
+      props.receiver === false
+        ? undefined
+        : new Receiver(this, 'Receiver', {
+            bucket: storage.bucket,
+            rawPrefix: storage.rawPrefix,
+            // With a domain, the receiver always answers to ftp.<domain>; the A record is ours only in Route 53 mode.
+            dns: props.dns ? { zone, hostName: `ftp.${props.dns.domainName}` } : undefined,
+          });
 
     // Internal state of app/scripts/apple-signing.mjs (iOS key, certificate, profile). Not user-facing.
     new secretsmanager.Secret(this, 'AppleSigningState', {
@@ -87,9 +92,9 @@ export class PicketStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'Bucket', { value: storage.bucket.bucketName });
     new cdk.CfnOutput(this, 'Table', { value: storage.table.tableName });
-    new cdk.CfnOutput(this, 'ReceiverIp', { value: receiver.publicIp });
+    new cdk.CfnOutput(this, 'ReceiverIp', { value: receiver?.publicIp ?? '(receiver not deployed)' });
     new cdk.CfnOutput(this, 'FtpHost', {
-      value: receiver.hostName,
+      value: receiver?.hostName ?? '(receiver not deployed)',
       description: 'Host Name to enter on the camera (FTP Transfer > Server Setting)',
     });
     new cdk.CfnOutput(this, 'Domain', {
@@ -104,10 +109,10 @@ export class PicketStack extends cdk.Stack {
       description: 'External DNS: create CNAME api.<domain> -> this value',
     });
     new cdk.CfnOutput(this, 'PairingSecret', { value: api.pairing.secretName, description: 'Workflows write one-time app pairing codes here' });
-    new cdk.CfnOutput(this, 'FtpUser', { value: receiver.ftpUser });
-    new cdk.CfnOutput(this, 'ReceiverInstanceId', { value: receiver.instance.instanceId });
+    new cdk.CfnOutput(this, 'FtpUser', { value: receiver?.ftpUser ?? '(receiver not deployed)' });
+    new cdk.CfnOutput(this, 'ReceiverInstanceId', { value: receiver?.instance.instanceId ?? '(receiver not deployed)' });
     new cdk.CfnOutput(this, 'FtpPasswordSecret', {
-      value: receiver.ftpPassword.secretName,
+      value: receiver?.ftpPassword.secretName ?? '(receiver not deployed)',
       description: 'aws secretsmanager get-secret-value --secret-id <this>',
     });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });

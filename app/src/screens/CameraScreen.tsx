@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import type { Api } from '../lib/api';
+import { ApiError, type Api } from '../lib/api';
 import type { ReceiverSettings } from '../lib/types';
 import { colors } from '../lib/theme';
 import { Button } from '../components/Button';
@@ -15,8 +15,22 @@ export function CameraScreen({ api }: { api: Api }) {
   const [showPassword, setShowPassword] = useState(false);
   const [custom, setCustom] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const [notDeployed, setNotDeployed] = useState<string | null>(null);
 
-  const load = useCallback(() => api.receiver().then(setSettings, fail('Could not load receiver settings')), [api]);
+  const load = useCallback(
+    () =>
+      api.receiver().then(
+        (s) => {
+          setNotDeployed(null);
+          setSettings(s);
+        },
+        (e: unknown) => {
+          if (e instanceof ApiError && e.status === 503) setNotDeployed(e.message);
+          else fail('Could not load receiver settings')(e);
+        },
+      ),
+    [api],
+  );
   useEffect(() => {
     void load();
   }, [load]);
@@ -68,6 +82,15 @@ export function CameraScreen({ api }: { api: Api }) {
       .finally(() => setBusy(null));
   };
 
+  if (notDeployed) {
+    return (
+      <View style={[styles.root, { justifyContent: 'center', gap: 16 }]}>
+        <Text style={styles.title}>Camera</Text>
+        <Text style={styles.help}>{notDeployed}</Text>
+        <Button title="Check again" color={colors.muted} onPress={() => void load()} />
+      </View>
+    );
+  }
   if (!settings) {
     return (
       <View style={[styles.root, { justifyContent: 'center' }]}>

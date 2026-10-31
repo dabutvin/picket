@@ -29,8 +29,8 @@ export interface ApiProps {
    * and an alias record added. External-DNS mode: pass an ISSUED `certificateArn`; the CNAME is added by hand.
    */
   dns?: { hostName: string; zone?: route53.IHostedZone; certificateArn?: string };
-  /** The FTPS receiver the app manages (settings, password rotation, start/stop). */
-  receiver: Receiver;
+  /** The FTPS receiver the app manages (settings, password rotation, start/stop). Absent when deployed with receiver=false. */
+  receiver?: Receiver;
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -100,12 +100,16 @@ export class Api extends Construct {
         LIGHTROOM_SCOPES: props.lightroom.scopes.join(','),
         LIGHTROOM_REDIRECT_URI: props.lightroom.redirectUri,
         LIGHTROOM_ALBUM_NAME: props.lightroom.albumName,
-        RECEIVER_HOST: props.receiver.hostName,
-        RECEIVER_FTP_USER: props.receiver.ftpUser,
-        RECEIVER_PASV_MIN: String(props.receiver.passivePorts.min),
-        RECEIVER_PASV_MAX: String(props.receiver.passivePorts.max),
-        RECEIVER_PASSWORD_SECRET_ARN: props.receiver.ftpPassword.secretArn,
-        RECEIVER_INSTANCE_ID: props.receiver.instance.instanceId,
+        ...(props.receiver
+          ? {
+              RECEIVER_HOST: props.receiver.hostName,
+              RECEIVER_FTP_USER: props.receiver.ftpUser,
+              RECEIVER_PASV_MIN: String(props.receiver.passivePorts.min),
+              RECEIVER_PASV_MAX: String(props.receiver.passivePorts.max),
+              RECEIVER_PASSWORD_SECRET_ARN: props.receiver.ftpPassword.secretArn,
+              RECEIVER_INSTANCE_ID: props.receiver.instance.instanceId,
+            }
+          : {}),
         PAIRING_SECRET_ARN: this.pairing.secretArn,
         TOKEN_SECRET_ARN: this.token.secretArn,
       },
@@ -116,17 +120,19 @@ export class Api extends Construct {
     this.token.grantRead(apiFn);
     // Camera settings are managed from the app: read/rotate the FTP password, reload it on the
     // receiver over SSM, start/stop the instance.
-    props.receiver.ftpPassword.grantRead(apiFn);
-    props.receiver.ftpPassword.grantWrite(apiFn);
-    const instanceArn = cdk.Stack.of(this).formatArn({ service: 'ec2', resource: 'instance', resourceName: props.receiver.instance.instanceId });
-    apiFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['ssm:SendCommand'],
-        resources: [instanceArn, cdk.Stack.of(this).formatArn({ service: 'ssm', region: '*', account: '', resource: 'document', resourceName: 'AWS-RunShellScript' })],
-      }),
-    );
-    apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetCommandInvocation', 'ec2:DescribeInstances'], resources: ['*'] }));
-    apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ec2:StartInstances', 'ec2:StopInstances'], resources: [instanceArn] }));
+    if (props.receiver) {
+      props.receiver.ftpPassword.grantRead(apiFn);
+      props.receiver.ftpPassword.grantWrite(apiFn);
+      const instanceArn = cdk.Stack.of(this).formatArn({ service: 'ec2', resource: 'instance', resourceName: props.receiver.instance.instanceId });
+      apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['ssm:SendCommand'],
+          resources: [instanceArn, cdk.Stack.of(this).formatArn({ service: 'ssm', region: '*', account: '', resource: 'document', resourceName: 'AWS-RunShellScript' })],
+        }),
+      );
+      apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetCommandInvocation', 'ec2:DescribeInstances'], resources: ['*'] }));
+      apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ec2:StartInstances', 'ec2:StopInstances'], resources: [instanceArn] }));
+    }
     props.table.grantReadWriteData(apiFn);
     // Presigned preview/thumb URLs only. The API must never be able to hand out a RAW (ADR-006).
     props.bucket.grantRead(apiFn, 'previews/*');

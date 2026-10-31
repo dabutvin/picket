@@ -10,6 +10,10 @@ on:
         type: choice
         default: deploy
         options: [deploy, diff]
+      receiver:
+        description: Create the FTPS receiver instance (turn off while the AWS account is still blocked from EC2)
+        type: boolean
+        default: true
 
 permissions:
   id-token: write # for the optional OIDC role
@@ -112,11 +116,12 @@ jobs:
       - name: CDK context
         id: ctx
         run: |
+          recv="-c receiver=${{ inputs.receiver }}"
           if [ "${{ steps.dns.outputs.mode }}" = "route53" ]; then
-            echo "args=-c domainName=$DOMAIN_NAME -c hostedZoneId=${{ steps.dns.outputs.zone_id }} -c dnsDelegated=${{ steps.dns.outputs.delegated }}" >> "$GITHUB_OUTPUT"
+            echo "args=$recv -c domainName=$DOMAIN_NAME -c hostedZoneId=${{ steps.dns.outputs.zone_id }} -c dnsDelegated=${{ steps.dns.outputs.delegated }}" >> "$GITHUB_OUTPUT"
           else
             arn="${{ steps.dns.outputs.cert_arn }}"
-            echo "args=-c domainName=$DOMAIN_NAME${arn:+ -c apiCertificateArn=$arn}" >> "$GITHUB_OUTPUT"
+            echo "args=$recv -c domainName=$DOMAIN_NAME${arn:+ -c apiCertificateArn=$arn}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Bootstrap CDK (idempotent)
@@ -151,7 +156,8 @@ jobs:
           {
             echo "## Netlify DNS"
             echo '```'
-            $dns upsert "$DOMAIN_NAME" A "ftp.$DOMAIN_NAME" "$(out ReceiverIp)" 300
+            ip="$(out ReceiverIp)"
+            if [ "$ip" = "(receiver not deployed)" ]; then echo "ftp record: skipped (receiver not deployed)"; else $dns upsert "$DOMAIN_NAME" A "ftp.$DOMAIN_NAME" "$ip" 300; fi
             cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
             [ -z "$cn" ] || $dns upsert "$DOMAIN_NAME" CNAME "$cn" "$cv" 300
             echo '```'
@@ -172,7 +178,7 @@ jobs:
           fi
           if [ -n "$arn" ] && [ "$(out ApiDomainTarget)" = "(no custom domain yet)" ]; then
             echo "Attaching api.$DOMAIN_NAME"
-            (cd infra && npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c apiCertificateArn="$arn")
+            (cd infra && npx cdk deploy --require-approval never --outputs-file outputs.json -c receiver="${{ inputs.receiver }}" -c domainName="$DOMAIN_NAME" -c apiCertificateArn="$arn")
           fi
           tgt="$(out ApiDomainTarget)"
           if [ "$tgt" != "(no custom domain yet)" ]; then
@@ -242,5 +248,9 @@ jobs:
               fi
             fi
             echo
-            echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."
+            if [ "${{ inputs.receiver }}" = "true" ]; then
+              echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."
+            else
+              echo "**Receiver not deployed** (receiver = false). Once AWS has unblocked EC2 for the account, run deploy again with the receiver box checked; everything else is live now."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

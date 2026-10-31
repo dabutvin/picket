@@ -16,6 +16,7 @@ export const handler = createApp({
   lightroom: lightroomConfigFromEnv(),
   pairing: createPairingStore(env('PAIRING_SECRET_ARN'), env('TOKEN_SECRET_ARN')),
   receiver: (() => {
+    if (!process.env.RECEIVER_INSTANCE_ID) return undefined;
     const cfg = {
       host: env('RECEIVER_HOST'),
       user: env('RECEIVER_FTP_USER'),
