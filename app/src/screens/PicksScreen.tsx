@@ -82,6 +82,11 @@ export function PicksScreen({ api }: { api: Api }) {
         return [`${waiting} waiting`, inFlight ? `${inFlight} sending` : ''].filter(Boolean).join(' · ');
       }}
       pollWhile={sending}
+      daySummary={(items) => {
+        const inFlight = items.filter(onItsWay).length;
+        const failed = items.filter((p) => p.lightroom?.status === 'failed').length;
+        return [inFlight ? `${inFlight} sending` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+      }}
       renderBar={({ items, selected, selecting, endSelecting, helpers }) => {
         if (selecting) {
           const sendable = selected.filter((p) => !onItsWay(p));

@@ -62,12 +62,15 @@ await shot('02c-review-after-jump', 'Review: after tapping a photo in the grid (
 
 await byId('tab-picks').click();
 await settle(1500);
-await shot('03-picks', 'Picks: waiting to be sent, one failed upload');
+await shot('03-picks', 'Picks: by capture day, one failed upload');
+await byId('day-2026-10-30').click();
+await settle(400);
+await shot('03b-picks-collapsed', 'Picks: a day collapsed');
+await byId('day-2026-10-30').click();
 await byId('grid-select').click();
-await byId('thumb-demo-11').click();
-await byId('thumb-demo-12').click();
+await byId('day-select-2026-10-30').click();
 await settle(300);
-await shot('04-picks-select', 'Picks: selecting a few to send or skip');
+await shot('04-picks-select', 'Picks: selecting a whole day (or single photos) to send or skip');
 await byId('grid-select').click(); // Done
 await byId('thumb-demo-13').click();
 await settle(1200);
