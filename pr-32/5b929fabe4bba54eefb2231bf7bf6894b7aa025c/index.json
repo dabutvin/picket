@@ -1,0 +1,66 @@
+[
+  {
+    "file": "01-review.png",
+    "caption": "Review: the carousel, first photo"
+  },
+  {
+    "file": "01b-review-zoomed.png",
+    "caption": "Review: double-tapped to zoom (pinch works too; one finger pans while zoomed)"
+  },
+  {
+    "file": "02-review-after-pick.png",
+    "caption": "Review: after flicking one up (next photo slid in, Undo enabled)"
+  },
+  {
+    "file": "02b-review-jump-grid.png",
+    "caption": "Review: \"Jump to\" grid of the queue by day (current photo outlined)"
+  },
+  {
+    "file": "02c-review-after-jump.png",
+    "caption": "Review: after tapping a photo in the grid (position jumped)"
+  },
+  {
+    "file": "03-picks.png",
+    "caption": "Picks: by capture day, one failed upload"
+  },
+  {
+    "file": "03b-picks-collapsed.png",
+    "caption": "Picks: a day collapsed"
+  },
+  {
+    "file": "04-picks-select.png",
+    "caption": "Picks: selecting a whole day (or single photos) to send or skip"
+  },
+  {
+    "file": "05-picks-detail-failed.png",
+    "caption": "Picks: detail view of a failed upload"
+  },
+  {
+    "file": "06-picks-sending.png",
+    "caption": "Picks: the instant after Send all (queued at once, progress line)"
+  },
+  {
+    "file": "06b-picks-uploading.png",
+    "caption": "Picks: a moment later (uploading, with spinners)"
+  },
+  {
+    "file": "06c-picks-sent.png",
+    "caption": "Picks: everything sent (notice stays a few seconds)"
+  },
+  {
+    "file": "07-sent.png",
+    "caption": "Sent: everything Lightroom has"
+  },
+  {
+    "file": "08-skipped.png",
+    "caption": "Skipped"
+  },
+  {
+    "file": "09-camera.png",
+    "caption": "Camera: receiver settings"
+  },
+  {
+    "file": "10-settings.png",
+    "caption": "Settings (sample-photos mode)"
+  }
+]
