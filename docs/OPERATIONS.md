@@ -101,9 +101,11 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
    code, and the DNS records for Netlify.
 2. **Adobe**: done. The Native App credential's client id, redirect URI and
    scopes are the defaults in `infra/bin/picket.ts`.
-3. **Phone enrollment**: `app-build → register-device`, follow the summary.
-4. **Build**: `app-build → build` (ios, preview). Open the build link on the
-   phone and tap Install.
+3. **Phone enrollment** (ad hoc path only): `app-build → register-device`,
+   follow the summary. The TestFlight path needs no enrollment.
+4. **Build**: either `app-build → build` (ios, preview) and tap Install on the
+   build link, or `app-build → build` (ios, production) and install from the
+   TestFlight app once it appears there (see **TestFlight** below).
 5. **App**: Settings → `ApiUrl` + pairing code → Pair → Connect Lightroom.
 6. **Camera**: the app's Camera tab has every value for
    `docs/CAMERA_SETUP.md`: Host Name `ftp.picket.photos`, user, password
