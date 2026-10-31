@@ -3,6 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions, Activ
 import { Image } from 'expo-image';
 import type { Photo } from '../lib/types';
 import { colors } from '../lib/theme';
+import { dayKey, dayLabel } from '../lib/days';
 import { Button } from './Button';
 
 const COLUMNS = 3;
@@ -24,12 +25,6 @@ interface Props {
   onClose: () => void;
 }
 
-const dayOf = (iso: string) => iso.slice(0, 10);
-const dayLabel = (iso: string) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-};
-
 /**
  * The whole review queue as thumbnails grouped by capture day, for jumping the carousel to a
  * different part of the shoot. Tap a photo to go there.
@@ -50,7 +45,7 @@ export function QueueGrid({ photos, index, more, loading, onPick, onEndReached, 
       row = [];
     };
     photos.forEach((photo, i) => {
-      const d = dayOf(photo.capturedAt);
+      const d = dayKey(photo.capturedAt);
       if (d !== day) {
         flush();
         day = d;
