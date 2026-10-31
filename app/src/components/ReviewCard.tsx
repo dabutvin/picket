@@ -1,12 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { Image } from 'expo-image';
 import type { Decision, Photo } from '../lib/types';
 import { colors } from '../lib/theme';
 import { captureTime, exifLine } from '../lib/format';
+import { ZoomableImage } from './ZoomableImage';
 
 /** What a flick on the card means: up promotes to Picks, down demotes to Skipped. */
 export type CardDecision = Extract<Decision, 'pick' | 'reject'>;
@@ -18,6 +18,8 @@ interface Props {
   onDecision: (photo: Photo, decision: CardDecision) => void;
   /** Imperative trigger for the on-screen buttons; registered by the active card. */
   commandRef?: React.MutableRefObject<((d: CardDecision) => void) | null>;
+  /** The photo is zoomed in: the carousel should stop browsing until it is zoomed out. */
+  onZoomChange?: (zoomed: boolean) => void;
 }
 
 const SWIPE_FRACTION = 0.22; // of screen height
@@ -26,11 +28,17 @@ const VELOCITY = 800;
 /**
  * One photo in the Review carousel. A vertical pan flicks it off the screen (up = pick,
  * down = skip); horizontal movement is left to the carousel around it. Each card owns its
- * animation values, so the card that replaces a decided one always starts at rest.
+ * animation values, so the card that replaces a decided one always starts at rest. While the
+ * photo is zoomed, one finger pans the photo instead of flicking.
  */
-export function ReviewCard({ photo, active, onDecision, commandRef }: Props) {
+export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange }: Props) {
   const { height } = useWindowDimensions();
   const y = useSharedValue(0);
+  const [zoomed, setZoomed] = useState(false);
+  const zoomChanged = (z: boolean) => {
+    setZoomed(z);
+    onZoomChange?.(z);
+  };
   const threshold = height * SWIPE_FRACTION;
 
   const flyOut = (decision: CardDecision) => {
@@ -52,7 +60,8 @@ export function ReviewCard({ photo, active, onDecision, commandRef }: Props) {
   }, [commandRef, active, photo.photoId]);
 
   const pan = Gesture.Pan()
-    .enabled(active)
+    .enabled(active && !zoomed)
+    .maxPointers(1)
     .activeOffsetY([-14, 14])
     .failOffsetX([-18, 18])
     .onUpdate((e) => {
@@ -78,14 +87,7 @@ export function ReviewCard({ photo, active, onDecision, commandRef }: Props) {
   return (
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.card, cardStyle]}>
-        <Image
-          source={{ uri: photo.previewUrl }}
-          placeholder={{ uri: photo.thumbUrl }}
-          contentFit="contain"
-          transition={120}
-          style={styles.image}
-          cachePolicy="memory-disk"
-        />
+        <ZoomableImage uri={photo.previewUrl} placeholder={photo.thumbUrl} style={styles.image} onZoomChange={zoomChanged} testID={active ? 'review-image' : undefined} />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.dim, dim]} />
         <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampTop, pickStamp]}>
           <Text style={[styles.stampText, { color: colors.pick }]}>PICK</Text>

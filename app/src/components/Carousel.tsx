@@ -12,6 +12,8 @@ interface Props<T> {
   onIndexChange: (index: number) => void;
   renderItem: (item: T, active: boolean) => ReactNode;
   renderEnd: () => ReactNode;
+  /** Off while the photo in view is zoomed, so one finger pans the photo instead of browsing. */
+  enabled?: boolean;
 }
 
 const SNAP_FRACTION = 0.25; // of page width
@@ -24,7 +26,7 @@ const NEIGHBOURS = 1;
  * the page in view slides its neighbour into place (a layout transition) instead of
  * jumping. Only the page in view and its neighbours are mounted.
  */
-export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, renderEnd }: Props<T>) {
+export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, renderEnd, enabled = true }: Props<T>) {
   const { width } = useWindowDimensions();
   const offset = useSharedValue(index * width);
   const start = useSharedValue(0);
@@ -40,6 +42,8 @@ export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, re
   }, [index, width, offset]);
 
   const pan = Gesture.Pan()
+    .enabled(enabled)
+    .maxPointers(1)
     .activeOffsetX([-14, 14])
     .failOffsetY([-18, 18])
     .onStart(() => {

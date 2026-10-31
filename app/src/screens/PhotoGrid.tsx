@@ -9,6 +9,7 @@ import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
+import { ZoomableImage } from '../components/ZoomableImage';
 
 const COLUMNS = 3;
 const GAP = 6;
@@ -259,7 +260,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
 
       {selected && (
         <View style={styles.sheet}>
-          <Image source={{ uri: selected.previewUrl }} placeholder={{ uri: selected.thumbUrl }} contentFit="contain" style={styles.sheetImage} />
+          <ZoomableImage uri={selected.previewUrl} placeholder={selected.thumbUrl} style={styles.sheetImage} testID="detail-image" />
           <View style={styles.metaRow}>
             <View style={styles.metaText}>
               <Text style={styles.fileName}>{selected.fileName}</Text>

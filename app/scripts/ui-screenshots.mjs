@@ -50,6 +50,11 @@ await page.goto(base, { waitUntil: 'networkidle' });
 await byId('tab-review').waitFor({ timeout: 30_000 });
 await settle(2500); // sample previews
 await shot('01-review', 'Review: the carousel, first photo');
+await byId('review-image').dblclick();
+await settle(700);
+await shot('01b-review-zoomed', 'Review: double-tapped to zoom (pinch works too; one finger pans while zoomed)');
+await byId('review-image').dblclick();
+await settle(700);
 await page.getByText('↑ Pick', { exact: true }).click();
 await settle(900);
 await shot('02-review-after-pick', 'Review: after flicking one up (next photo slid in, Undo enabled)');
