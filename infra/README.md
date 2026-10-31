@@ -21,6 +21,7 @@ Adobe settings default to the project's credential in `bin/picket.ts`; override 
 `LIGHTROOM_RAW_CONTENT_TYPE` or the matching `-c` context keys.
 
 Deploys normally run from the `deploy` GitHub Actions workflow (`docs/OPERATIONS.md`).
+`scripts/netlify-dns.sh` upserts the domain's records on Netlify DNS (the workflow calls it).
 The receiver carries the tag `picket:role=receiver`; `/usr/local/bin/picket-set-ftp-password.sh`
 on it reloads the camera password from Secrets Manager (the deploy workflow runs it over SSM).
 

@@ -134,6 +134,56 @@ jobs:
         working-directory: infra
         run: npx cdk deploy --require-approval never --outputs-file outputs.json ${{ steps.ctx.outputs.args }}
 
+      - name: Netlify DNS (external mode)
+        if: inputs.action == 'deploy' && steps.dns.outputs.mode == 'external'
+        id: netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          out() { jq -r ".${STACK}.$1" infra/outputs.json; }
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "managed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NETLIFY_AUTH_TOKEN not set; the summary lists the DNS records to add by hand"
+            exit 0
+          fi
+          dns=infra/scripts/netlify-dns.sh
+          {
+            echo "## Netlify DNS"
+            echo '```'
+            $dns upsert "$DOMAIN_NAME" A "ftp.$DOMAIN_NAME" "$(out ReceiverIp)" 300
+            cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
+            [ -z "$cn" ] || $dns upsert "$DOMAIN_NAME" CNAME "$cn" "$cv" 300
+            echo '```'
+          } > netlify-summary.md
+          cat netlify-summary.md
+
+          # Wait for the API certificate to validate, then attach the custom domain in this same run.
+          arn="${{ steps.dns.outputs.cert_arn }}"
+          if [ -z "$arn" ] && [ -n "$cn" ]; then
+            cand="$(aws acm list-certificates --certificate-statuses PENDING_VALIDATION ISSUED \
+              --query "CertificateSummaryList[?DomainName=='api.${DOMAIN_NAME}'].CertificateArn | [0]" --output text)"
+            for i in $(seq 1 24); do
+              st="$(aws acm describe-certificate --certificate-arn "$cand" --query Certificate.Status --output text)"
+              echo "certificate: $st"
+              [ "$st" = "ISSUED" ] && { arn="$cand"; break; }
+              sleep 30
+            done
+          fi
+          if [ -n "$arn" ] && [ "$(out ApiDomainTarget)" = "(no custom domain yet)" ]; then
+            echo "Attaching api.$DOMAIN_NAME"
+            (cd infra && npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c apiCertificateArn="$arn")
+          fi
+          tgt="$(out ApiDomainTarget)"
+          if [ "$tgt" != "(no custom domain yet)" ]; then
+            { echo '```'; $dns upsert "$DOMAIN_NAME" CNAME "api.$DOMAIN_NAME" "$tgt" 300; echo '```'; } >> netlify-summary.md
+            echo "api_attached=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The API certificate is still validating; run deploy again later to attach api.$DOMAIN_NAME (the default URL works meanwhile)." >> netlify-summary.md
+            echo "api_attached=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "managed=true" >> "$GITHUB_OUTPUT"
+
       - name: Issue an app pairing code
         if: inputs.action == 'deploy'
         run: |
@@ -163,33 +213,33 @@ jobs:
             echo
             echo "Settings → API URL \`$(out ApiUrl)\` → pairing code **$PAIRING_CODE** (valid until $PAIRING_EXPIRES UTC, one use). Need another later: ops → pairing-code."
             echo
-            echo "## DNS"
-            echo
-            if [ "${{ steps.dns.outputs.mode }}" = "route53" ]; then
-              if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
-                echo "\`$DOMAIN_NAME\` is delegated to the Route 53 zone; records are managed by the stack."
-              else
-                echo "\`$DOMAIN_NAME\` is not yet delegated to the Route 53 zone. Set these name servers at the registrar, then run deploy again:"
-                echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
-              fi
+            if [ "${{ steps.netlify.outputs.managed }}" = "true" ]; then
+              cat netlify-summary.md
+              echo
+              echo "DNS records are managed on Netlify by this workflow. The receiver fetches its Let's Encrypt certificate within ~15 minutes of \`ftp.$DOMAIN_NAME\` resolving."
             else
-              echo "DNS for \`$DOMAIN_NAME\` is external (Netlify). Add these records in Netlify → Domains → \`$DOMAIN_NAME\` → DNS settings:"
+              echo "## DNS"
               echo
-              echo "| type | name | value | why |"
-              echo "|---|---|---|---|"
-              echo "| A | \`ftp\` | \`$(out ReceiverIp)\` | the camera's FTPS host; the receiver fetches a Let's Encrypt certificate once this resolves |"
-              cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
-              if [ -n "$cn" ]; then echo "| CNAME | \`${cn%.}\` | \`${cv%.}\` | proves to AWS that you own \`api.$DOMAIN_NAME\` (certificate status: ${{ steps.dns.outputs.cert_status }}) |"; fi
-              tgt="$(out ApiDomainTarget)"
-              if [ "$tgt" != "(no custom domain yet)" ]; then
-                echo "| CNAME | \`api\` | \`$tgt\` | the app's API at https://api.$DOMAIN_NAME |"
+              if [ "${{ steps.dns.outputs.mode }}" = "route53" ]; then
+                if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
+                  echo "\`$DOMAIN_NAME\` is delegated to the Route 53 zone; records are managed by the stack."
+                else
+                  echo "\`$DOMAIN_NAME\` is not yet delegated to the Route 53 zone. Set these name servers at the registrar, then run deploy again:"
+                  echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
+                fi
+              else
+                echo "DNS for \`$DOMAIN_NAME\` is external (Netlify). Add the \`NETLIFY_AUTH_TOKEN\` secret to let this workflow manage the records, or add them in Netlify → Domains → \`$DOMAIN_NAME\` → DNS settings:"
+                echo
+                echo "| type | name | value | why |"
+                echo "|---|---|---|---|"
+                echo "| A | \`ftp\` | \`$(out ReceiverIp)\` | the camera's FTPS host; the receiver fetches a Let's Encrypt certificate once this resolves |"
+                cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
+                if [ -n "$cn" ]; then echo "| CNAME | \`${cn%.}\` | \`${cv%.}\` | proves to AWS that you own \`api.$DOMAIN_NAME\` (certificate status: ${{ steps.dns.outputs.cert_status }}) |"; fi
+                tgt="$(out ApiDomainTarget)"
+                if [ "$tgt" != "(no custom domain yet)" ]; then
+                  echo "| CNAME | \`api\` | \`$tgt\` | the app's API at https://api.$DOMAIN_NAME |"
+                fi
               fi
-              echo
-              case "${{ steps.dns.outputs.cert_status }}" in
-                ISSUED) [ "$tgt" = "(no custom domain yet)" ] && echo "The API certificate is issued; run deploy once more to attach \`api.$DOMAIN_NAME\`." || echo "Once the \`api\` CNAME resolves, the app can use https://api.$DOMAIN_NAME; until then \`$(out ApiUrl)\` works too.";;
-                PENDING_VALIDATION) echo "After adding the validation CNAME, AWS issues the certificate within ~30 minutes; run deploy again then to attach \`api.$DOMAIN_NAME\`. The default API URL above works meanwhile.";;
-                *) echo "Certificate status: ${{ steps.dns.outputs.cert_status }}. Run deploy again to retry.";;
-              esac
             fi
             echo
             echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."

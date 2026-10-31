@@ -148,13 +148,15 @@ only executor. Camera settings should be managed in the app, not in a console.
 - iOS signing goes through the App Store Connect API from the workflow, because
   EAS CLI will not create a distribution certificate non-interactively.
 - `picket.photos` is registered through Netlify, whose registered domains
-  can't be delegated elsewhere, so DNS records are added by hand in Netlify's
-  panel from the deploy summary: `ftp` A (receiver, Let's Encrypt via certbot
-  on the instance), the ACM validation CNAME, and `api` CNAME. The workflow
-  requests the certificate outside CloudFormation and only attaches the custom
-  domain once it is issued, so pending validation never stalls a deploy. If a
-  Route 53 zone for the domain ever appears in the account, the same workflow
-  switches to managing the records itself.
+  can't be delegated elsewhere, so the records live in Netlify DNS and the
+  deploy manages them through Netlify's API with a personal access token
+  (`infra/scripts/netlify-dns.sh`): `ftp` A (receiver, Let's Encrypt via
+  certbot on the instance), the ACM validation CNAME, and `api` CNAME. The
+  workflow requests the certificate outside CloudFormation, waits for it to
+  validate, then attaches the custom domain, so pending validation never
+  stalls a deploy. Without the token the summary lists the records to add by
+  hand; if a Route 53 zone for the domain ever appears in the account, the
+  same workflow switches to Route 53 mode.
 
 **Consequences.** The camera password, and the receiver's on/off switch, are a
 tap in the app. Adding a phone is two buttons. Nothing in the

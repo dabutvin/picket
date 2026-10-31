@@ -29,9 +29,9 @@ Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
 
 Everything deploys and operates through GitHub Actions buttons; see
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md). In short: add the repository
-secrets (AWS, Expo, Apple), run the **deploy** workflow, add the DNS records it
-prints at Netlify, build the app with **app-build**, pair the app with the code
-from the deploy summary, and read the camera settings off the app's Camera tab.
+secrets (AWS, Expo, Apple, Netlify), run the **deploy** workflow, build the app
+with **app-build**, pair the app with the code from the deploy summary, and
+read the camera settings off the app's Camera tab.
 The camera talks to `ftp.picket.photos`; the app to `api.picket.photos`. The **ops** workflow gives you status, receiver start/stop and
 retries. The **app-build** workflow enrolls your iPhone, creates the iOS signing
 material through the App Store Connect API, and starts EAS builds. No computer

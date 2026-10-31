@@ -21,6 +21,7 @@ them, rotates the password and starts or stops the receiver.
 | `EXPO_TOKEN` | secret | expo.dev → account → Access tokens. |
 | `APPLE_TEAM_ID` | secret | developer.apple.com → Membership details (10 characters). |
 | `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | secret | An App Store Connect **Team** API key with the **Admin** role: App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → Generate. Paste the whole `.p8` file contents into `ASC_API_KEY_P8` (raw, `\n`-escaped or base64 all work); the Key ID is on that row, the Issuer ID at the top of the page. |
+| `NETLIFY_AUTH_TOKEN` | secret | Netlify → User settings → Applications → Personal access tokens. Lets `deploy` and `ops → dns` manage the DNS records for the domain. Without it the summary lists the records to add by hand. |
 | `AWS_REGION` | variable, optional | Defaults to `us-east-1`. |
 | `DOMAIN_NAME` | variable, optional | Defaults to `picket.photos`. |
 
@@ -66,6 +67,7 @@ couple of minutes. Running it when nothing changed is harmless.
 |---|---|
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
+| `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
 | `reload-ftp-password` | force the receiver to re-read the camera password (the app does this itself after a change; this is the manual fallback) |
 | `redrive-dlq` | put picks that failed six times back on the upload queue (after you fixed the cause, e.g. reconnected Lightroom or freed storage) |
@@ -112,9 +114,11 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
 ## Domain: picket.photos (DNS at Netlify)
 
 The domain is registered through Netlify, whose registered domains can't be
-pointed at other name servers, so DNS records live in Netlify's DNS panel
-(Netlify → Domains → picket.photos → DNS settings) and the deploy summary
-tells you exactly what to add:
+pointed at other name servers, so DNS records live in Netlify DNS. With the
+`NETLIFY_AUTH_TOKEN` secret set, `deploy` creates and updates them itself,
+waits for the API certificate to validate, and attaches `api.picket.photos`
+in the same run. Without the token, the summary tells you exactly what to add
+in Netlify → Domains → picket.photos → DNS settings:
 
 | record | points at | purpose |
 |---|---|---|
@@ -122,10 +126,10 @@ tells you exactly what to add:
 | validation CNAME (name and value printed in the summary) | AWS | proves ownership of `api.picket.photos` so AWS issues its certificate |
 | `api` CNAME | the `ApiDomainTarget` output | the app's API at https://api.picket.photos |
 
-Sequence: first `deploy` prints the `ftp` A record and the validation CNAME.
-Add both. Within ~30 minutes AWS issues the certificate; run `deploy` again and
-the summary prints the `api` CNAME. Add it. The default `execute-api` URL works
-the whole time, so none of this blocks using the app.
+Manual sequence (no token): first `deploy` prints the `ftp` A record and the
+validation CNAME. Add both. Within ~30 minutes AWS issues the certificate; run
+`deploy` again and the summary prints the `api` CNAME. Add it. The default
+`execute-api` URL works the whole time, so none of this blocks using the app.
 
 If a Route 53 hosted zone for the domain ever exists in the account, `deploy`
 switches to Route 53 mode automatically and manages the records itself.
