@@ -1,0 +1,103 @@
+name: ui-preview
+
+# Screenshots of every app screen on each pull request that touches app/, so the UI can be
+# checked in the PR before merging. The app is exported for the web in sample-photos mode
+# (EXPO_PUBLIC_PICKET_DEMO=1, see app/src/lib/demo.ts), driven in headless Chromium at phone
+# size by app/scripts/ui-screenshots.mjs, and the images are pushed to the `ui-previews`
+# branch and embedded in one comment that is updated on every push.
+# It is a web rendering: layout and copy are faithful, native gestures and fonts are not.
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/ui-preview.yml"
+
+permissions:
+  contents: write # pushes the images to the ui-previews branch
+  pull-requests: write # posts / updates the comment
+
+concurrency:
+  group: ui-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_VERSION: "1.63.0"
+
+jobs:
+  screenshots:
+    name: screenshots (web build, sample photos)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: "app/package-lock.json" }
+      - run: npm ci
+      - name: Export the web build in sample-photos mode
+        run: EXPO_PUBLIC_PICKET_DEMO=1 npx expo export --platform web --output-dir dist
+      - name: Install Playwright + Chromium
+        run: |
+          npm install --no-save "playwright@${PLAYWRIGHT_VERSION}"
+          npx playwright install --with-deps chromium
+      - name: Screenshot every screen
+        run: node scripts/ui-screenshots.mjs dist screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: app/screenshots
+          if-no-files-found: error
+
+      - name: Publish the images to the ui-previews branch
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          dir="$(mktemp -d)"
+          if ! git clone -q --depth 1 --branch ui-previews "$remote" "$dir" 2>/dev/null; then
+            git init -q "$dir"
+            git -C "$dir" checkout -q --orphan ui-previews
+            git -C "$dir" remote add origin "$remote"
+            printf '# UI previews\n\nScreenshots posted by the ui-preview workflow, one folder per pull request (latest commit only).\n' > "$dir/README.md"
+          fi
+          rm -rf "$dir/pr-${PR}"
+          mkdir -p "$dir/pr-${PR}/${SHA}"
+          cp app/screenshots/*.png app/screenshots/index.json "$dir/pr-${PR}/${SHA}/"
+          cd "$dir"
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "UI preview for #${PR} at ${SHA}"
+          git push -q origin ui-previews
+
+      - name: Post or update the PR comment
+        uses: actions/github-script@v7
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request.number;
+            const sha = process.env.SHA;
+            const shots = JSON.parse(fs.readFileSync('app/screenshots/index.json', 'utf8'));
+            const base = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/ui-previews/pr-${pr}/${sha}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const marker = '<!-- ui-preview -->';
+            let body = `${marker}\n## UI preview\n\n`;
+            body += `Web build of \`app/\` at ${sha.slice(0, 7)} with sample photos, phone-size viewport. `;
+            body += `Layout and copy are faithful; native gestures and fonts are not.\n\n`;
+            for (let i = 0; i < shots.length; i += 2) {
+              const row = shots.slice(i, i + 2);
+              body += `| ${row.map((s) => s.caption).join(' | ')} |\n|${row.map(() => ' --- ').join('|')}|\n`;
+              body += `| ${row.map((s) => `<img src="${base}/${s.file}" width="300" alt="${s.caption}">`).join(' | ')} |\n\n`;
+            }
+            body += `Full-size files: the \`ui-screenshots\` artifact on [this run](${runUrl}).\n`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr, per_page: 100 });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });

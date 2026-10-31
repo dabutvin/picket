@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import * as Clipboard from 'expo-clipboard';
 import { ApiError, type Api } from '../lib/api';
 import type { ReceiverSettings } from '../lib/types';
-import { colors } from '../lib/theme';
+import { colors, MONO } from '../lib/theme';
 import { Button } from '../components/Button';
 
 const fail = (what: string) => (e: unknown) => Alert.alert(what, e instanceof Error ? e.message : String(e));
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   label: { color: colors.muted, width: 120 },
   value: { color: colors.text, flex: 1, fontWeight: '600' },
-  mono: { fontFamily: 'Menlo' },
+  mono: { fontFamily: MONO },
   copy: { color: colors.accent, fontSize: 12 },
   input: { color: colors.text, backgroundColor: colors.bg, borderColor: colors.border, borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15 },
   actions: { flexDirection: 'row', gap: 10, alignItems: 'center' },

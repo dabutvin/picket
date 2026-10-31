@@ -7,13 +7,16 @@ interface Props {
   color?: string;
   disabled?: boolean;
   style?: ViewStyle;
+  testID?: string;
 }
 
-export function Button({ title, onPress, color = colors.accent, disabled, style }: Props) {
+export function Button({ title, onPress, color = colors.accent, disabled, style, testID }: Props) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      testID={testID}
+      accessibilityRole="button"
       style={({ pressed }) => [styles.btn, { borderColor: color, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 }, style]}
     >
       <Text style={[styles.text, { color }]}>{title}</Text>
