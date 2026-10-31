@@ -135,6 +135,7 @@ jobs:
         run: npx cdk diff ${{ steps.ctx.outputs.args }} 2>&1 | tee "$GITHUB_STEP_SUMMARY"
 
       - name: cdk deploy
+        id: cdkdeploy
         if: inputs.action == 'deploy'
         working-directory: infra
         run: npx cdk deploy --require-approval never --outputs-file outputs.json ${{ steps.ctx.outputs.args }}
@@ -195,15 +196,11 @@ jobs:
         run: |
           set -euo pipefail
           out() { jq -r ".${STACK}.$1" infra/outputs.json; }
-          raw="$(tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c 8)"
-          code="${raw:0:4}-${raw:4:4}"
-          expires="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
-          aws secretsmanager put-secret-value --secret-id "$(out PairingSecret)" --secret-string "{\"code\":\"$code\",\"expiresAt\":\"$expires\"}" >/dev/null
-          echo "PAIRING_CODE=$code" >> "$GITHUB_ENV"
-          echo "PAIRING_EXPIRES=$expires" >> "$GITHUB_ENV"
+          infra/scripts/pairing-code.sh "$(out PairingSecret)" 30 >> "$GITHUB_ENV"
 
       - name: Summary
-        if: inputs.action == 'deploy'
+        # Runs even if the pairing step failed, so the stack outputs are never lost.
+        if: ${{ !cancelled() && inputs.action == 'deploy' && steps.cdkdeploy.conclusion == 'success' }}
         run: |
           out() { jq -r ".${STACK}.$1" infra/outputs.json; }
           {
@@ -217,7 +214,11 @@ jobs:
             echo
             echo "## Pair the app"
             echo
-            echo "Settings → API URL \`$(out ApiUrl)\` → pairing code **$PAIRING_CODE** (valid until $PAIRING_EXPIRES UTC, one use). Need another later: ops → pairing-code."
+            if [ -n "${PAIRING_CODE:-}" ]; then
+              echo "Settings → API URL \`$(out ApiUrl)\` → pairing code **$PAIRING_CODE** (valid until $PAIRING_EXPIRES UTC, one use). Need another later: ops → pairing-code."
+            else
+              echo "Settings → API URL \`$(out ApiUrl)\`. Issuing the pairing code failed in this run; run ops → pairing-code for one."
+            fi
             echo
             if [ "${{ steps.netlify.outputs.managed }}" = "true" ]; then
               cat netlify-summary.md

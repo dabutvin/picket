@@ -1,30 +1,44 @@
 # Status and handoff
 
-Last updated: 2026-10-31 (end of the kick-off sessions). Read this first; the
-rest of `docs/` describes the intended system, this file says how much of it is
-real.
+Last updated: 2026-10-31 (after deploy run #8). Read this first; the rest of
+`docs/` describes the intended system, this file says how much of it is real.
 
 ## In one line
 
-All code, infrastructure definitions and workflows exist and pass their checks,
-but **nothing has been deployed yet**: both `deploy` runs failed before creating
-anything because the AWS IAM user has no permissions. No camera, app, Lightroom
-or DNS step has been exercised against a live system.
+**The AWS stack is deployed** (deploy run #8, 2026-10-31 ~02:00Z): bucket,
+table, FTPS receiver instance, preview Lambda, HTTP API at
+`https://api.picket.photos` with its certificate, Lightroom queue and Lambdas,
+and the Netlify DNS records. The run then failed on its last step, issuing the
+pairing code (a shell bug, fixed since), so no summary was written and the app
+has not been paired. No camera, app or Lightroom step has been exercised yet.
+
+## Live values (from the run #8 stack outputs)
+
+| output | value |
+|---|---|
+| `ApiUrl` | `https://api.picket.photos` (answers 401 without a token: authorizer is live) |
+| `FtpHost` / `ReceiverIp` | `ftp.picket.photos` → `32.195.179.86` (A record created 02:00Z) |
+| `FtpUser` | `camera` (password in the `ReceiverFtpPassword…` secret, shown on the app's Camera tab) |
+| `ReceiverInstanceId` | `i-0f03cb3e4abe79692` |
+| `Bucket` / `Table` | `picket-storagephotos333b189a-fdxlcmdf8lng` / `Picket-StoragePhotosTable7FF827A8-JKR9YJGGIDGW` |
+| `ApiDomainTarget` | `d-thqkmpdtdl.execute-api.us-east-1.amazonaws.com` (the `api` CNAME points here) |
 
 ## What exists and how it was verified
 
 | part | state | evidence |
 |---|---|---|
 | `docs/` architecture, 7 ADRs, camera menu guide, operations runbook | written | reviewed against code in the last cleanup pass |
-| `infra/` CDK stack (bucket, table, FTPS receiver, preview Lambda, HTTP API + authorizer, Lightroom queue/router/uploader, pairing secret, optional custom domain) | synthesizes | `cdk synth` in all four DNS modes, in CI on every PR |
-| `infra/ingest/cloud-init.sh` (pure-ftpd, upload hook, Let's Encrypt timer, password reload script) | **never booted** | shell-reviewed only; expect a shakedown on the first real instance |
+| `infra/` CDK stack (bucket, table, FTPS receiver, preview Lambda, HTTP API + authorizer, Lightroom queue/router/uploader, pairing secret, optional custom domain) | **deployed** | run #8: `CREATE_COMPLETE`, then `UPDATE_COMPLETE` attaching `api.picket.photos` |
+| `infra/ingest/cloud-init.sh` (pure-ftpd, upload hook, Let's Encrypt timer, password reload script) | booted once, **unverified** | the instance exists since run #8; nobody has checked that pure-ftpd is up or that the certificate was issued (`ops → status`, then a camera connect) |
 | `services/preview` Python Lambda | tested | 6 pytest tests, including a real ILCE-7CM2 ARW (7008×4672 embedded JPEG confirmed) |
 | `services/api` (routes, authorizer, pairing, receiver management, Lightroom client, uploader, stream router) | tested | 50 vitest tests; Adobe responses replayed through an injectable fetch, never against Adobe |
 | `app/` Expo SDK 58 (Review, Picks, Skipped, Camera, Settings with pairing and Connect Lightroom) | typechecks | `tsc` only; **never run on a device or simulator**, never built with EAS |
 | `app/scripts/apple-signing.mjs` (App Store Connect API signing) | self-tested offline | JWT/CSR/PKCS#12 round trip; **no call to Apple has been made** |
-| `infra/scripts/netlify-dns.sh` | syntax-checked | `bash -n`; **no call to Netlify has been made** |
+| `infra/scripts/netlify-dns.sh` | works | run #8 created the `ftp` A record and the ACM validation CNAME; the `api` CNAME followed |
+| `infra/scripts/pairing-code.sh` | tested offline | 500 generated codes matched `XXXX-XXXX` over the 32-symbol alphabet; the AWS write was faked |
 | GitHub Actions `ci` | green on `main` | runs synth, tests, typechecks |
-| GitHub Actions `deploy`, `ops`, `app-build` | YAML-valid | `deploy` ran twice and failed (below); `ops` and `app-build` have never run |
+| GitHub Actions `deploy` | works through the DNS step | 8 runs (below); the pairing step's `tr … \| head` broke under `pipefail` and is replaced by the script |
+| GitHub Actions `ops`, `app-build` | YAML-valid | **never run** (`ops → pairing-code` had the same pairing bug, fixed with it) |
 
 ## External accounts and secrets (names only)
 
@@ -32,10 +46,12 @@ or DNS step has been exercised against a live system.
   `AWS_SECRET_ACCESS_KEY`, `EXPO_TOKEN`, `APPLE_TEAM_ID`, `ASC_API_KEY_P8`,
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `NETLIFY_AUTH_TOKEN`. Variables `AWS_REGION`
   and `DOMAIN_NAME` are unset (defaults `us-east-1`, `picket.photos`).
-- **AWS**: account 940392916059, IAM user `Picket` with `AdministratorAccess`.
-  Region `us-east-1`. CDK **is bootstrapped** (run #3). The account is a new
-  one and **EC2 is blocked pending AWS account verification** (run #5). The
-  `Picket` stack is in `ROLLBACK_COMPLETE`; CDK replaces it on the next deploy.
+- **AWS**: the run #8 stack ARN is in account 798764287578 (the kick-off notes
+  said 940392916059; the credentials in the repository secrets decide). IAM
+  user `Picket` with `AdministratorAccess`, region `us-east-1`, CDK
+  bootstrapped. The EC2 account-verification block seen in runs #5 and #6 is
+  gone: run #8 created the receiver instance. The `Picket` stack is in
+  `UPDATE_COMPLETE`.
 - **Adobe**: Developer Console project with Lightroom Services, OAuth Native App
   credential in development mode, the Lightroom account added as a beta user.
   Client id, redirect URI (`adobe+94690ff144227aa43751adfb4cb46fc1432adb0c://adobeid/<clientId>`)
@@ -59,21 +75,22 @@ or DNS step has been exercised against a live system.
 | #3 (2026-10-31 01:08Z) | bootstrap OK; stack rolled back at resource 29/86 | EC2 rejects an apostrophe in a security group rule description (`Let's Encrypt…`) | PR #5 |
 | #4 (2026-10-31 01:17Z) | rolled back creating the Lightroom uploader | account Lambda quota too small for `ReservedConcurrentExecutions: 1` | PR #6 (SQS `maxConcurrency: 2` instead) |
 | #5 (2026-10-31 01:25Z) | rolled back creating the EC2 receiver, after everything else created | EC2: "This account is currently blocked and not recognized as a valid account" (new-account verification hold) | owner action with AWS; receiver made optional (`receiver=false` deploys the rest) |
+| #6 (2026-10-31 01:36Z) | same rollback at the receiver | same EC2 block | owner action with AWS |
+| #7 (2026-10-31 01:46Z) | cancelled by the owner | | |
+| #8 (2026-10-31 01:54Z) | **stack created** in ~4 min, Netlify records written, certificate `ISSUED` after ~4 min, `api.picket.photos` attached by the second `cdk deploy`; then **failed in "Issue an app pairing code"** | `tr -dc … </dev/urandom \| head -c 8` exits 141 (SIGPIPE) under `set -o pipefail`; the Summary step was skipped, so the outputs and code were never shown | `infra/scripts/pairing-code.sh` (byte-wise, no pipeline); Summary now runs even if pairing fails |
 
 ## Next steps, in order
 
-1. AWS account verification: EC2 is blocked until AWS finishes verifying the
-   new account (payment method, identity). Check the console banner / email,
-   or open the support case EC2's error links to. Meanwhile run `deploy` with
-   the **receiver** box unchecked: everything except the FTPS instance goes
-   live and the app can be paired and connected to Lightroom.
-2. Run `deploy` (receiver checked) once EC2 works. Expect: CDK bootstrap, stack creation (~10 min), Netlify
-   records (`ftp` A, ACM validation CNAME), a wait for the certificate, a
-   second `cdk deploy` attaching `api.picket.photos`, the `api` CNAME, and a
-   pairing code in the summary. Watch for first-run surprises in
-   `cloud-init.sh` (never booted): check with `ops → status` and, if the camera
-   can't connect after ~5 minutes, Session Manager on the instance and
-   `journalctl -t picket -t picket-upload`.
+1. Get a pairing code: `ops → pairing-code` (fast), or run `deploy` again
+   (idempotent, ~6 min, and it prints the full summary with every output).
+   The code is valid 30 minutes and once; the app's Settings screen takes
+   `https://api.picket.photos` plus the code.
+2. Check the receiver: `ops → status` should show the instance `running`.
+   `cloud-init.sh` had never booted before run #8, so expect a shakedown: if
+   the camera can't connect, use Session Manager on `i-0f03cb3e4abe79692` and
+   `journalctl -t picket -t picket-upload`, and check that the Let's Encrypt
+   timer issued a certificate for `ftp.picket.photos` (needs port 80 reachable
+   and the A record, which exists since 02:00Z).
 3. `app-build → register-device`, enroll the iPhone via the EAS link, approve.
 4. `app-build → build` (ios, preview). First run links the EAS project, then
    the signing script makes its first real Apple calls (certificate, bundle id,
@@ -93,8 +110,8 @@ or DNS step has been exercised against a live system.
   → Connect*).
 - Whether Adobe's `offline_access` scope returns a refresh token on the PKCE
   exchange from a Native App credential (the app errors clearly if not).
-- Whether the ACM certificate validates within the deploy's 12-minute wait
-  (if not, a later `deploy` attaches the domain).
+- ~~Whether the ACM certificate validates within the deploy's 12-minute wait~~
+  It did, in about 4 minutes (run #8).
 - Whether `eas device:list --json` has the field names the signing script
   expects (`identifier`/`udid`, `name`); it reads both.
 - IAM: `AdministratorAccess` is assumed. A narrower policy was not attempted.
