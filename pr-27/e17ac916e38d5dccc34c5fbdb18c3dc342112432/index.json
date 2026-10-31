@@ -1,0 +1,42 @@
+[
+  {
+    "file": "01-review.png",
+    "caption": "Review: the carousel, first photo"
+  },
+  {
+    "file": "02-review-after-pick.png",
+    "caption": "Review: after flicking one up (next photo slid in, Undo enabled)"
+  },
+  {
+    "file": "03-picks.png",
+    "caption": "Picks: waiting to be sent, one failed upload"
+  },
+  {
+    "file": "04-picks-select.png",
+    "caption": "Picks: selecting a few to send or skip"
+  },
+  {
+    "file": "05-picks-detail-failed.png",
+    "caption": "Picks: detail view of a failed upload"
+  },
+  {
+    "file": "06-picks-sending.png",
+    "caption": "Picks: right after Send all (queued, then sending)"
+  },
+  {
+    "file": "07-sent.png",
+    "caption": "Sent: everything Lightroom has"
+  },
+  {
+    "file": "08-skipped.png",
+    "caption": "Skipped"
+  },
+  {
+    "file": "09-camera.png",
+    "caption": "Camera: receiver settings"
+  },
+  {
+    "file": "10-settings.png",
+    "caption": "Settings (sample-photos mode)"
+  }
+]
