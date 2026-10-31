@@ -15,6 +15,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 ## Resume here
 
+0. **Run the photo-id migration once** (after #23 is deployed): `ops →
+   migrate-photo-ids` with the confirm box empty is a dry run that lists the
+   rows to move; run it again with `migrate` in the box to apply. Until then,
+   photos uploaded before #23 would get a second row if the camera re-sent them
+   on a later day.
 1. **Watch the first Lightroom token refresh.** Adobe access tokens expire
    after about a day; the uploader refreshes with the stored refresh token on
    its next pick. A pick failing with a 403 tomorrow means the refresh path
@@ -86,6 +91,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #19 | DLQ stack output is `LightroomUploadDlqUrlE37DE845` | ops resolves CDK-suffixed output keys; debug step tolerates failing calls |
 | #20 | uploader's first write: DynamoDB "ExpressionAttributeNames must not be empty" | update helper omits the empty map; regression test against the real store |
 | #21 | Adobe 415 `InvalidContentTypeError` on `image/x-sony-arw` | ARW masters sent as `application/octet-stream` |
+| #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moves existing rows |
 
 ## External accounts and secrets (names only)
 

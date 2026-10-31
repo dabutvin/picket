@@ -6,11 +6,22 @@ from PIL import Image
 import handler
 
 
-def test_photo_id_is_stable_and_short():
-    a = handler.derive_photo_id("raw/2026/10/30/DSC00001.ARW")
-    assert a == handler.derive_photo_id("raw/2026/10/30/DSC00001.ARW")
+def test_photo_id_depends_on_frame_not_upload_path():
+    a = handler.derive_photo_id("DSC00001.ARW", "2026-10-30T18:02:11")
+    assert a == handler.derive_photo_id("DSC00001.ARW", "2026-10-30T18:02:11")
+    assert a == handler.derive_photo_id("dsc00001.arw", "2026-10-30T18:02:11")  # case-insensitive name
     assert len(a) == 16
-    assert a != handler.derive_photo_id("raw/2026/10/31/DSC00001.ARW")
+    # a later shot that reused the file name (counter wrapped) is a different photo
+    assert a != handler.derive_photo_id("DSC00001.ARW", "2027-01-01T09:00:00")
+    assert a != handler.derive_photo_id("DSC00002.ARW", "2026-10-30T18:02:11")
+
+
+def test_migration_derives_the_same_id_as_the_lambda():
+    import migrate_ids
+
+    assert migrate_ids.derive_photo_id("DSC04185.ARW", "2026-10-31T12:20:00") == handler.derive_photo_id(
+        "DSC04185.ARW", "2026-10-31T12:20:00"
+    )
 
 
 def _jpeg(w, h, orientation=None):
