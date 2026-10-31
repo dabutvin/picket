@@ -105,7 +105,8 @@ as a beta user. Enough for one user's own catalog.
   backend serves the exact value; the app immediately hands the tokens to the
   backend. The backend stores them in Secrets Manager, refreshes them, and never
   returns them.
-- A pick is a row-level state change (`lightroomStatus = queued`). The table
+- A pick is a row-level state change (`lightroomStatus = queued`; since
+  ADR-008 set by an explicit send, not by the swipe). The table
   stream → router Lambda → SQS → uploader Lambda pipeline reacts to it. SQS gives
   retries, a dead-letter queue, and serialization (uploader concurrency 1).
 - The uploader follows Adobe's documented flow: create asset with
@@ -162,3 +163,40 @@ only executor. Camera settings should be managed in the app, not in a console.
 tap in the app. Adding a phone is two buttons. Nothing in the
 repo or in GitHub can sign an iOS app or log into Lightroom; the AWS account is
 the single trust root.
+
+## ADR-008: Picking stages a photo; sending to Lightroom is a separate, explicit step
+
+**Context.** The first live sessions uploaded every swipe-right to Lightroom
+within seconds. That felt wrong in use: a pick during a fast first pass is a
+"maybe", not a commitment, and once a photo was in Lightroom it had no place
+left in the app (it sat in Picks looking identical to the ones still waiting).
+The owner asked for a staged flow: triage fast, look at the picks as a set,
+send them in a batch, and have sent photos leave the way.
+
+**Decision.**
+- `POST /photos/{id}/decision {pick}` only sets `status = pick`. Nothing is
+  queued.
+- The Picks tab is a staging area with **Send all to Lightroom** and a
+  long-press multi-select (**Send N** / **Skip N**). It calls
+  `POST /lightroom/send` (`{photoIds}` or `{all: true}`), which sets
+  `lightroomStatus = queued` on picks that are not already queued, uploading or
+  delivered. The single-photo route `POST /photos/{id}/lightroom` is the same
+  operation for one photo and doubles as the retry for a failed upload and the
+  nudge for one stuck on queued.
+- A fourth photo status, `sent`, is written by the uploader in the same
+  DynamoDB update that records `done` or `duplicate`. Only the uploader writes
+  it; the decision route rejects it. The app's tabs are Review (`unreviewed`),
+  Picks (`pick`), Sent (`sent`), Skipped (`reject`).
+- Picks that were delivered before this change are moved to `sent` lazily the
+  first time `GET /photos?status=pick` returns them, instead of a migration run.
+- Review became a carousel: left and right browse, a flick up picks, a flick
+  down skips. Looking ahead and going back without deciding was the other half
+  of the request.
+
+**Consequences.** Uploads happen when the photographer chooses, typically once
+per session, so a failed Adobe token refresh surfaces as one visible failure
+instead of a day of silent ones. `lightroomStatus` stays sparse (only sent
+photos carry it), and the `byLightroomStatus` index now counts only photos
+that were actually sent. A photo in Sent is read-only in the app; un-picking
+or skipping it would not remove it from Lightroom, so the app does not offer
+that.

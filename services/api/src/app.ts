@@ -5,9 +5,11 @@ import { BadCursor, type Store } from './store.js';
 import { BadPassword, type createReceiverService } from './receiver.js';
 import { redeemPairingCode, type PairingStore } from './pairing.js';
 import {
+  DECISIONS,
   LIGHTROOM_STATUSES,
   PHOTO_STATUSES,
   type ConnectRequest,
+  type Decision,
   type LightroomConnection,
   type LightroomStatus,
   type LightroomStatusView,
@@ -15,12 +17,16 @@ import {
   type PhotoItem,
   type PhotoPage,
   type PhotoStatus,
+  type SendRequest,
+  type SendResult,
   type Stats,
 } from './types.js';
 
 export const PREVIEW_URL_TTL = 60 * 60; // 1 h: enough for a review session
 export const DEFAULT_LIMIT = 30;
 export const MAX_LIMIT = 100;
+/** Picks queued in one POST /lightroom/send call; "send all" pages through the rest server-side. */
+export const MAX_SEND = 100;
 
 export interface LightroomConfig {
   clientId: string;
@@ -50,6 +56,10 @@ const json = (statusCode: number, body: unknown): Result => ({
 const error = (statusCode: number, message: string): Result => json(statusCode, { error: message });
 
 const isStatus = (v: unknown): v is PhotoStatus => typeof v === 'string' && (PHOTO_STATUSES as readonly string[]).includes(v);
+const isDecision = (v: unknown): v is Decision => typeof v === 'string' && (DECISIONS as readonly string[]).includes(v);
+
+/** Lightroom already has it, whatever `status` says. */
+const delivered = (p: PhotoItem) => p.lightroom?.status === 'done' || p.lightroom?.status === 'duplicate';
 
 const parseBody = <T>(event: APIGatewayProxyEventV2): T | undefined => {
   try {
@@ -83,7 +93,15 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
       if (err instanceof BadCursor) return error(400, 'invalid cursor');
       throw err;
     }
-    const body: PhotoPage = { items: await Promise.all(page.items.map(withUrls)), cursor: page.cursor };
+    let items = page.items;
+    if (status === 'pick') {
+      // Picks from before the Sent stage existed (uploaded straight from the swipe) are moved
+      // over the first time they are listed; no migration run needed.
+      const legacy = items.filter(delivered);
+      await Promise.all(legacy.map((p) => store.setStatus(p.photoId, 'sent')));
+      items = items.filter((p) => !delivered(p));
+    }
+    const body: PhotoPage = { items: await Promise.all(items.map(withUrls)), cursor: page.cursor };
     return json(200, body);
   }
 
@@ -92,18 +110,49 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
     if (!id) return error(400, 'missing id');
     const body = parseBody<{ decision?: unknown }>(event);
     if (!body) return error(400, 'body must be JSON');
-    if (!isStatus(body.decision)) return error(400, `decision must be one of ${PHOTO_STATUSES.join(', ')}`);
+    if (!isDecision(body.decision)) return error(400, `decision must be one of ${DECISIONS.join(', ')}`);
     const updated = await store.setStatus(id, body.decision);
     if (!updated) return error(404, 'photo not found');
     return json(200, await withUrls(updated));
   }
 
-  async function retryLightroom(event: APIGatewayProxyEventV2): Promise<Result> {
+  /** Send one pick to Lightroom, or retry / nudge one that failed or is stuck on queued. */
+  async function sendOne(event: APIGatewayProxyEventV2): Promise<Result> {
     const id = event.pathParameters?.id;
     if (!id) return error(400, 'missing id');
-    const updated = await store.requeueLightroom(id);
-    if (!updated) return error(409, 'photo not found or not a pick');
+    const updated = await store.queueLightroom(id);
+    if (!updated) return error(409, 'photo not found, not a pick, or already on its way to Lightroom');
     return json(200, await withUrls(updated));
+  }
+
+  /** The Picks screen's "Send to Lightroom": a chosen batch, or every pick that is not already on its way. */
+  async function sendMany(event: APIGatewayProxyEventV2): Promise<Result> {
+    const body = parseBody<Partial<SendRequest>>(event);
+    if (!body) return error(400, 'body must be JSON');
+    let ids: string[];
+    if (body.all === true) {
+      ids = [];
+      let cursor: string | undefined;
+      do {
+        const page = await store.listByStatus('pick', MAX_LIMIT, cursor);
+        // Queued and uploading picks are already on their way; a stuck one is nudged from its detail view.
+        ids.push(...page.items.filter((p) => !p.lightroomStatus || p.lightroomStatus === 'failed').map((p) => p.photoId));
+        cursor = page.cursor;
+      } while (cursor);
+    } else {
+      if (!Array.isArray(body.photoIds) || !body.photoIds.every((v) => typeof v === 'string' && v.length > 0)) {
+        return error(400, 'photoIds must be an array of ids (or pass all: true)');
+      }
+      if (body.photoIds.length > MAX_SEND) return error(400, `at most ${MAX_SEND} photoIds per call`);
+      ids = [...new Set(body.photoIds)];
+    }
+    const result: SendResult = { photos: [], skipped: [] };
+    for (const id of ids) {
+      const updated = await store.queueLightroom(id);
+      if (updated) result.photos.push(await withUrls(updated));
+      else result.skipped.push(id);
+    }
+    return json(200, result);
   }
 
   async function stats(): Promise<Result> {
@@ -269,7 +318,9 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
         case 'POST /photos/{id}/decision':
           return await decide(event);
         case 'POST /photos/{id}/lightroom':
-          return await retryLightroom(event);
+          return await sendOne(event);
+        case 'POST /lightroom/send':
+          return await sendMany(event);
         case 'GET /stats':
           return await stats();
         case 'GET /lightroom':

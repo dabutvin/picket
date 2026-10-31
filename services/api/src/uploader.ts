@@ -35,7 +35,11 @@ export function createUploader(deps: UploaderDeps) {
   const fetchFn = deps.fetchFn ?? fetch;
   const now = deps.now ?? (() => new Date());
 
-  /** Persist progress and keep a current view of the row so attempts/assetId accumulate across marks. */
+  /**
+   * Persist progress and keep a current view of the row so attempts/assetId accumulate across marks.
+   * Once Lightroom has the photo (done or duplicate) the pick becomes `sent`, which moves it from the
+   * app's Picks tab to its Sent tab.
+   */
   async function mark(current: PhotoItem, patch: Partial<LightroomInfo> & { status: LightroomInfo['status'] }): Promise<PhotoItem> {
     const info: LightroomInfo = {
       ...current.lightroom,
@@ -43,8 +47,9 @@ export function createUploader(deps: UploaderDeps) {
       updatedAt: now().toISOString(),
       attempts: (current.lightroom?.attempts ?? 0) + (patch.status === 'uploading' ? 1 : 0),
     };
-    const saved = await deps.store.setLightroom(current.photoId, info);
-    return saved ?? { ...current, lightroomStatus: info.status, lightroom: info };
+    const delivered = info.status === 'done' || info.status === 'duplicate';
+    const saved = await deps.store.setLightroom(current.photoId, info, delivered ? 'sent' : undefined);
+    return saved ?? { ...current, status: delivered ? 'sent' : current.status, lightroomStatus: info.status, lightroom: info };
   }
 
   async function ensureAlbum(client: LightroomClient, conn: LightroomConnection): Promise<LightroomConnection> {

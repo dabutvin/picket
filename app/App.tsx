@@ -8,14 +8,16 @@ import { loadSettings, type Settings } from './src/lib/settings';
 import { createApi } from './src/lib/api';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
+import { SentScreen } from './src/screens/SentScreen';
 import { SkippedScreen } from './src/screens/SkippedScreen';
 import { CameraScreen } from './src/screens/CameraScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
-type Tab = 'review' | 'picks' | 'skipped' | 'camera' | 'settings';
+type Tab = 'review' | 'picks' | 'sent' | 'skipped' | 'camera' | 'settings';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'review', label: 'Review' },
   { key: 'picks', label: 'Picks' },
+  { key: 'sent', label: 'Sent' },
   { key: 'skipped', label: 'Skipped' },
   { key: 'camera', label: 'Camera' },
   { key: 'settings', label: 'Settings' },
@@ -43,6 +45,8 @@ export default function App() {
             <ReviewScreen api={api} />
           ) : activeTab === 'picks' && api ? (
             <PicksScreen api={api} />
+          ) : activeTab === 'sent' && api ? (
+            <SentScreen api={api} />
           ) : activeTab === 'skipped' && api ? (
             <SkippedScreen api={api} />
           ) : activeTab === 'camera' && api ? (
@@ -58,18 +62,18 @@ export default function App() {
             />
           )}
           <View style={styles.tabs}>
-            {TABS.map((t) => (
-              <Pressable
-                key={t.key}
-                onPress={() => setTab(t.key)}
-                disabled={!api && t.key !== 'settings'}
-                style={styles.tab}
-              >
-                <Text style={[styles.tabText, activeTab === t.key && styles.tabActive, !api && t.key !== 'settings' && styles.tabDisabled]}>
-                  {t.label}
-                </Text>
-              </Pressable>
-            ))}
+            {TABS.map((t) => {
+              const active = activeTab === t.key;
+              const disabled = !api && t.key !== 'settings';
+              return (
+                <Pressable key={t.key} onPress={() => setTab(t.key)} disabled={disabled} style={styles.tab}>
+                  <View style={[styles.tabIndicator, active && styles.tabIndicatorActive]} />
+                  <Text style={[styles.tabText, active && styles.tabActive, disabled && styles.tabDisabled]} numberOfLines={1}>
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </SafeAreaView>
       </SafeAreaProvider>
@@ -80,8 +84,10 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   tabs: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabText: { color: colors.muted, fontWeight: '600' },
+  tab: { flex: 1, paddingBottom: 10, alignItems: 'center', gap: 8 },
+  tabIndicator: { height: 2, width: 24, borderRadius: 1, backgroundColor: 'transparent' },
+  tabIndicatorActive: { backgroundColor: colors.accent },
+  tabText: { color: colors.muted, fontWeight: '600', fontSize: 12 },
   tabActive: { color: colors.text },
   tabDisabled: { opacity: 0.4 },
 });

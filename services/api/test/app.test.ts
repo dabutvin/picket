@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createMemoryConnectionStore } from '../src/connection.js';
 import { BadCursor, decodeCursor, encodeCursor } from '../src/store.js';
-import { body, connection, deps, ev, fakeFetch, lrJson } from './helpers.js';
+import { body, connection, deps, ev, fakeFetch, item, lrJson } from './helpers.js';
 
 describe('GET /photos', () => {
   it('defaults to unreviewed and attaches presigned urls', async () => {
@@ -47,6 +47,8 @@ describe('POST /photos/{id}/decision', () => {
     const app = createApp(deps());
     expect((await app(ev('POST /photos/{id}/decision', { pathParameters: { id: 'zz' }, body: '{"decision":"pick"}' }))).statusCode).toBe(404);
     expect((await app(ev('POST /photos/{id}/decision', { pathParameters: { id: 'a' }, body: '{"decision":"meh"}' }))).statusCode).toBe(400);
+    // Only the uploader may mark a photo as sent.
+    expect((await app(ev('POST /photos/{id}/decision', { pathParameters: { id: 'a' }, body: '{"decision":"sent"}' }))).statusCode).toBe(400);
     expect((await app(ev('POST /photos/{id}/decision', { pathParameters: { id: 'a' }, body: 'not json' }))).statusCode).toBe(400);
   });
 });
@@ -61,15 +63,77 @@ describe('no RAW download route', () => {
   });
 });
 
-describe('POST /photos/{id}/lightroom (retry)', () => {
-  it('requeues a pick and 409s otherwise', async () => {
+describe('GET /photos?status=pick moves legacy delivered picks to sent', () => {
+  it('flips picks that Lightroom already has and leaves them out of the page', async () => {
+    const d = deps();
+    (d.store.listByStatus as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [
+        item('fresh', 'pick'),
+        item('old', 'pick', { lightroomStatus: 'done', lightroom: { status: 'done', updatedAt: 'x' } }),
+        item('dup', 'pick', { lightroomStatus: 'duplicate', lightroom: { status: 'duplicate', updatedAt: 'x' } }),
+        item('failed', 'pick', { lightroomStatus: 'failed', lightroom: { status: 'failed', updatedAt: 'x' } }),
+      ],
+    });
+    const r = await createApp(d)(ev('GET /photos', { queryStringParameters: { status: 'pick' } }));
+    expect(body(r).items.map((p: { photoId: string }) => p.photoId)).toEqual(['fresh', 'failed']);
+    expect(d.store.setStatus).toHaveBeenCalledWith('old', 'sent');
+    expect(d.store.setStatus).toHaveBeenCalledWith('dup', 'sent');
+    expect(d.store.setStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('lists sent photos like any other status', async () => {
+    const d = deps();
+    const r = await createApp(d)(ev('GET /photos', { queryStringParameters: { status: 'sent' } }));
+    expect(r.statusCode).toBe(200);
+    expect(d.store.listByStatus).toHaveBeenCalledWith('sent', 30, undefined);
+    expect(d.store.setStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /photos/{id}/lightroom (send one / retry)', () => {
+  it('queues a pick and 409s otherwise', async () => {
     const d = deps();
     const app = createApp(d);
     const r = await app(ev('POST /photos/{id}/lightroom', { pathParameters: { id: 'a' } }));
     expect(r.statusCode).toBe(200);
-    expect(d.store.requeueLightroom).toHaveBeenCalledWith('a');
+    expect(d.store.queueLightroom).toHaveBeenCalledWith('a');
     expect(body(r).lightroomStatus).toBe('queued');
     expect((await app(ev('POST /photos/{id}/lightroom', { pathParameters: { id: 'zz' } }))).statusCode).toBe(409);
+  });
+});
+
+describe('POST /lightroom/send (batch)', () => {
+  it('queues the given picks and reports the ones it could not', async () => {
+    const d = deps();
+    const r = await createApp(d)(ev('POST /lightroom/send', { body: JSON.stringify({ photoIds: ['a', 'zz', 'a'] }) }));
+    expect(r.statusCode).toBe(200);
+    const b = body(r);
+    expect(b.photos.map((p: { photoId: string }) => p.photoId)).toEqual(['a']);
+    expect(b.photos[0].lightroomStatus).toBe('queued');
+    expect(b.photos[0].previewUrl).toContain('https://s3/');
+    expect(b.skipped).toEqual(['zz']);
+    expect(d.store.queueLightroom).toHaveBeenCalledTimes(2); // duplicates collapsed
+  });
+
+  it('all: true pages through every pick and skips the ones already on their way', async () => {
+    const d = deps();
+    const list = d.store.listByStatus as ReturnType<typeof vi.fn>;
+    list.mockResolvedValueOnce({ items: [item('a', 'pick'), item('q', 'pick', { lightroomStatus: 'queued' })], cursor: 'more' });
+    list.mockResolvedValueOnce({ items: [item('u', 'pick', { lightroomStatus: 'uploading' }), item('f', 'pick', { lightroomStatus: 'failed' })] });
+    const r = await createApp(d)(ev('POST /lightroom/send', { body: '{"all":true}' }));
+    expect(r.statusCode).toBe(200);
+    expect(list).toHaveBeenNthCalledWith(1, 'pick', 100, undefined);
+    expect(list).toHaveBeenNthCalledWith(2, 'pick', 100, 'more');
+    expect((d.store.queueLightroom as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toEqual(['a', 'f']);
+    expect(body(r).skipped).toEqual(['f']); // the fake store only knows 'a'
+  });
+
+  it('400s on a bad body or too many ids', async () => {
+    const app = createApp(deps());
+    expect((await app(ev('POST /lightroom/send', { body: 'nope' }))).statusCode).toBe(400);
+    expect((await app(ev('POST /lightroom/send', { body: '{}' }))).statusCode).toBe(400);
+    expect((await app(ev('POST /lightroom/send', { body: '{"photoIds":[1]}' }))).statusCode).toBe(400);
+    expect((await app(ev('POST /lightroom/send', { body: JSON.stringify({ photoIds: Array.from({ length: 101 }, (_, i) => `p${i}`) }) }))).statusCode).toBe(400);
   });
 });
 
@@ -77,7 +141,7 @@ describe('GET /stats', () => {
   it('counts every status', async () => {
     const r = await createApp(deps())(ev('GET /stats'));
     expect(body(r)).toEqual({
-      photos: { unreviewed: 5, pick: 2, reject: 7 },
+      photos: { unreviewed: 5, pick: 2, reject: 7, sent: 3 },
       lightroom: { queued: 1, uploading: 0, done: 1, duplicate: 0, failed: 0 },
     });
   });

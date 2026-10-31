@@ -101,7 +101,7 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
-        placeholder="https://xxxxx.execute-api.us-east-1.amazonaws.com"
+        placeholder="https://api.picket.photos"
         placeholderTextColor={colors.muted}
         style={styles.input}
       />

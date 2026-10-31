@@ -166,6 +166,7 @@ export class Api extends Construct {
     http.addRoutes({ path: '/stats', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/lightroom', methods: [apigw.HttpMethod.GET, apigw.HttpMethod.POST, apigw.HttpMethod.DELETE], integration });
     http.addRoutes({ path: '/lightroom/refresh', methods: [apigw.HttpMethod.POST], integration });
+    http.addRoutes({ path: '/lightroom/send', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/receiver', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/receiver/password', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/receiver/power', methods: [apigw.HttpMethod.POST], integration });

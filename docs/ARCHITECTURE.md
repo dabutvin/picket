@@ -1,8 +1,9 @@
 # Picket architecture
 
-Picket moves RAW photos from a Sony a7C II to AWS wirelessly, lets you swipe
-through them on your phone to pick keepers, and uploads the picks straight from
-S3 into your Lightroom cloud catalog. The RAW files never touch the phone.
+Picket moves RAW photos from a Sony a7C II to AWS wirelessly, lets you flick
+through them on your phone to pick keepers, and, when you say so, uploads the
+picks straight from S3 into your Lightroom cloud catalog. The RAW files never
+touch the phone.
 
 This document describes the intended system. `docs/STATUS.md` says which parts
 have actually run.
@@ -21,9 +22,10 @@ have actually run.
                                                                                    (status = unreviewed)
                                                                                         ▲        │ stream
                    Expo app (iOS)  ◀──HTTPS + bearer token──▶  HTTP API + Lambda  ──────┘        ▼
-                   swipe left  = reject                        GET  /photos?status=        Lambda: router
-                   swipe right = pick  → lightroomStatus=queued POST /photos/{id}/decision  (lightroomStatus → queued)
-                   "Connect Lightroom" (OAuth PKCE, once)      POST /lightroom  (stores tokens)     │ SQS
+                   flick down = reject, flick up = pick         GET  /photos?status=        Lambda: router
+                   Picks tab: "Send to Lightroom"               POST /photos/{id}/decision  (lightroomStatus → queued)
+                     → lightroomStatus=queued                   POST /lightroom/send
+                   "Connect Lightroom" (OAuth PKCE, once)       POST /lightroom  (stores tokens)    │ SQS
                                                                                                     ▼
                                                                                           Lambda: uploader
                                                                                 S3 raw/ ──▶ lr.adobe.io catalog
@@ -67,13 +69,20 @@ An S3 `ObjectCreated` notification on `raw/` invokes `services/preview`
 idempotent. A re-upload with the same name on the same day replaces previews
 but keeps an existing decision.
 
-### 3. Review (swipe)
+### 3. Review (first triage) and Picks (the send step)
 
 `app/` is an Expo (React Native, TypeScript) app. The Review screen loads
-`unreviewed` photos oldest-first and shows a swipe deck. Right = pick,
-left = reject (shown as "Skip"). Each decision is posted immediately and
-optimistic; the deck pre-fetches the next previews, and Undo puts the last card
-back. The Picks screen lists `pick` photos with their Lightroom state; the
+`unreviewed` photos oldest-first into a carousel: swipe left and right to look
+ahead and go back, flick a photo up to make it a `pick`, down to `reject`
+(shown as "Skip"). Each decision is posted immediately and optimistic; the
+carousel pre-fetches the neighbouring previews, and Undo puts the last photo
+back where it was.
+
+Picking does **not** upload anything. The Picks screen is the staging area:
+it lists `pick` photos, and **Send all to Lightroom** (or a long-press
+selection and **Send N**) is what queues them. From there you can also skip a
+pick or send it back to Review. Once Lightroom has a photo the uploader moves
+it to `sent`, and it leaves Picks for the Sent screen, which is read-only. The
 Skipped screen lists `reject` photos so any skip can become a pick later.
 Nothing is ever deleted from S3 by a swipe.
 
@@ -88,10 +97,12 @@ hands the resulting tokens to `POST /lightroom`. The API verifies the account is
 status `subscriber` or `trial`), fetches the catalog id (`GET /v2/catalog`), and
 stores everything in one Secrets Manager secret. The phone keeps nothing.
 
-From then on a swipe right does this:
+From then on **Send to Lightroom** on the Picks tab does this:
 
-1. `POST /photos/{id}/decision {pick}` sets `status = pick` and, the first time,
-   `lightroomStatus = queued`.
+1. `POST /lightroom/send {photoIds}` (or `{all: true}`) sets
+   `lightroomStatus = queued` on each pick that is not already queued,
+   uploading or delivered. `POST /photos/{id}/lightroom` does the same for one
+   photo (also the retry for a failed one).
 2. The Photos table stream (filtered to `lightroomStatus = queued`) invokes the
    **router** Lambda, which drops `{photoId}` on an SQS queue.
 3. The **uploader** Lambda (concurrency 1, batch size 1) loads the row, refreshes
@@ -102,10 +113,12 @@ From then on a swipe right does this:
    200 MB per-call limit), then adds the asset to the album with our `photoId`
    as `remoteId`.
 4. The row ends as `lightroomStatus = done` (or `duplicate` if Lightroom already
-   had the same bytes, HTTP 412). Transient errors (429, 5xx) go back on the
-   queue up to 6 times, then to a dead-letter queue; permanent ones (413 storage
-   full, 415 content type, 4xx auth) are recorded as `failed` with the message.
-   **Retry upload** in the app re-queues a failed pick.
+   had the same bytes, HTTP 412) and, in the same write, `status = sent`, which
+   moves the photo from the Picks tab to the Sent tab. Transient errors (429,
+   5xx) go back on the queue up to 6 times, then to a dead-letter queue;
+   permanent ones (413 storage full, 415 content type, 4xx auth) are recorded as
+   `failed` with the message and the photo stays a pick. **Retry upload** in the
+   app re-queues a failed pick.
 
 The "Picket" album shows up in Lightroom's Connections panel on every device.
 
@@ -116,7 +129,7 @@ DynamoDB table `Photos` (on-demand):
 | attribute    | type | notes                                                        |
 |--------------|------|--------------------------------------------------------------|
 | `photoId`    | S    | PK. `sha256("FILENAME|capturedAt")[:16]`: the same frame re-sent on another day keeps its row |
-| `status`     | S    | `unreviewed` \| `pick` \| `reject`                            |
+| `status`     | S    | `unreviewed` \| `pick` \| `reject` \| `sent` (set by the uploader once Lightroom has it) |
 | `capturedAt` | S    | ISO-8601 from EXIF `DateTimeOriginal`; falls back to upload time |
 | `rawKey`     | S    | `raw/2026/10/30/DSC01234.ARW`                                |
 | `previewKey` | S    | `previews/<photoId>.jpg`                                     |
@@ -127,12 +140,16 @@ DynamoDB table `Photos` (on-demand):
 | `camera`, `lens`, `iso`, `shutter`, `aperture` | S | from EXIF, best-effort        |
 | `uploadedAt` | S    | S3 event time                                                |
 | `decidedAt`  | S    | set when status changes                                      |
-| `lightroomStatus` | S | `queued` \| `uploading` \| `done` \| `duplicate` \| `failed`; absent until first picked |
+| `lightroomStatus` | S | `queued` \| `uploading` \| `done` \| `duplicate` \| `failed`; absent until first sent |
 | `lightroom`  | M    | `{ status, updatedAt, assetId?, albumId?, error?, attempts? }` |
 
 Review decisions and Lightroom delivery are deliberately separate fields:
-"picked" and "in Lightroom" are different questions. Rejecting is a label, not a
-delete; the RAW stays in S3.
+"picked" and "in Lightroom" are different questions. `status = sent` is the
+one place they meet: it is what the app's tabs are driven by, and only the
+uploader writes it (the decision route refuses it). Picks from before the
+send step existed, uploaded straight from the swipe, are moved to `sent` the
+first time the Picks list is read, so no migration run is needed. Rejecting
+is a label, not a delete; the RAW stays in S3.
 
 GSIs: `byStatus` (PK `status`, SK `capturedAt`) drives the swipe and grid
 screens; `byLightroomStatus` (PK `lightroomStatus`, SK `decidedAt`, keys only)
@@ -149,9 +166,10 @@ it once by redeeming a short-lived, single-use pairing code. Single user.
 | method | path                        | body / query                        | returns |
 |--------|-----------------------------|-------------------------------------|---------|
 | GET    | `/photos`                   | `status` (default `unreviewed`), `limit` (≤100), `cursor` | `{ items: Photo[], cursor? }` with `previewUrl`/`thumbUrl` presigned (1 h) |
-| POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo`; a first-time pick is queued for Lightroom |
-| POST   | `/photos/{id}/lightroom`    |                                     | re-queues a failed pick (409 if not a pick) |
-| GET    | `/stats`                    |                                     | `{ photos: {unreviewed, pick, reject}, lightroom: {queued, uploading, done, duplicate, failed} }` |
+| POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo`; nothing is queued (`sent` is not accepted) |
+| POST   | `/photos/{id}/lightroom`    |                                     | queues one pick for Lightroom: first send, retry after a failure, or a nudge while queued (409 if not a pick or already uploading/delivered) |
+| POST   | `/lightroom/send`           | `{ photoIds: string[] }` (≤100) or `{ all: true }` | queues those picks (or every pick not already on its way); `{ photos: Photo[], skipped: string[] }` |
+| GET    | `/stats`                    |                                     | `{ photos: {unreviewed, pick, reject, sent}, lightroom: {queued, uploading, done, duplicate, failed} }` |
 | GET    | `/lightroom`                |                                     | connection view + OAuth config (`clientId`, `scopes`, endpoints) for the app |
 | POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
 | POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
@@ -175,7 +193,7 @@ infra/           AWS CDK (TypeScript). One stack: PicketStack
 infra/ingest/    cloud-init + upload hook for the FTPS receiver
 services/preview Python Lambda: ARW → previews + DynamoDB
 services/api     TypeScript Lambdas: HTTP API + authorizer, stream router, Lightroom uploader
-app/             Expo app (swipe review, picks, skipped, camera settings, connect Lightroom)
+app/             Expo app (review carousel, picks + send, sent, skipped, camera settings, connect Lightroom)
 ```
 
 ## Costs (us-east-1, rough, per month)

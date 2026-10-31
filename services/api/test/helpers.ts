@@ -27,9 +27,9 @@ export const fakeStore = (): Store => ({
   }),
   get: vi.fn(async (id) => (id === 'a' ? item('a') : undefined)),
   setStatus: vi.fn(async (id, status) => (id === 'a' ? item('a', status) : undefined)),
-  setLightroom: vi.fn(async (id, info) => (id === 'a' ? item('a', 'pick', { lightroomStatus: info.status, lightroom: info }) : undefined)),
-  requeueLightroom: vi.fn(async (id) => (id === 'a' ? item('a', 'pick', { lightroomStatus: 'queued' }) : undefined)),
-  countByStatus: vi.fn(async (status: PhotoStatus) => ({ unreviewed: 5, pick: 2, reject: 7 })[status]),
+  setLightroom: vi.fn(async (id, info, status) => (id === 'a' ? item('a', status ?? 'pick', { lightroomStatus: info.status, lightroom: info }) : undefined)),
+  queueLightroom: vi.fn(async (id) => (id === 'a' ? item('a', 'pick', { lightroomStatus: 'queued' }) : undefined)),
+  countByStatus: vi.fn(async (status: PhotoStatus) => ({ unreviewed: 5, pick: 2, reject: 7, sent: 3 })[status]),
   countByLightroomStatus: vi.fn(async (status: LightroomStatus) => ({ queued: 1, uploading: 0, done: 1, duplicate: 0, failed: 0 })[status]),
   signGet: vi.fn(async (key, ttl) => `https://s3/${key}?ttl=${ttl}`),
 });

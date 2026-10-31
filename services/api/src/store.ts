@@ -7,12 +7,15 @@ import type { LightroomInfo, LightroomStatus, PhotoItem, PhotoStatus } from './t
 export interface Store {
   listByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<{ items: PhotoItem[]; cursor?: string }>;
   get(photoId: string): Promise<PhotoItem | undefined>;
-  /** Flip the review decision. A first-time pick is also queued for Lightroom. */
+  /** Flip the review decision (or, from the uploader, mark a pick as sent). Never queues anything. */
   setStatus(photoId: string, status: PhotoStatus): Promise<PhotoItem | undefined>;
-  /** Record progress of the Lightroom upload. */
-  setLightroom(photoId: string, info: LightroomInfo): Promise<PhotoItem | undefined>;
-  /** Put a pick back on the Lightroom queue (retry after a failure). */
-  requeueLightroom(photoId: string): Promise<PhotoItem | undefined>;
+  /** Record progress of the Lightroom upload; `status` moves the photo along with it (pick → sent). */
+  setLightroom(photoId: string, info: LightroomInfo, status?: PhotoStatus): Promise<PhotoItem | undefined>;
+  /**
+   * Put a pick on the Lightroom queue: a first send, a retry after a failure, or a nudge for one
+   * stuck on queued. Undefined when it is not a pick or is already uploading / in Lightroom.
+   */
+  queueLightroom(photoId: string): Promise<PhotoItem | undefined>;
   countByStatus(status: PhotoStatus): Promise<number>;
   countByLightroomStatus(status: LightroomStatus): Promise<number>;
   /** Presigned GET for a preview or thumb. */
@@ -129,32 +132,28 @@ export function createStore(cfg: StoreConfig, clients: { ddb?: DynamoDBDocumentC
     },
 
     setStatus(photoId, status) {
-      const now = new Date();
-      if (status === 'pick') {
-        // if_not_exists: a photo that already went to Lightroom (or failed) keeps its record;
-        // failures are retried explicitly through requeueLightroom.
-        return update(
-          photoId,
-          'SET #s = :s, decidedAt = :t, lightroomStatus = if_not_exists(lightroomStatus, :q), lightroom = if_not_exists(lightroom, :lr)',
-          { '#s': 'status' },
-          { ':s': status, ':t': now.toISOString(), ':q': 'queued', ':lr': queuedInfo(now) },
-        );
-      }
-      return update(photoId, 'SET #s = :s, decidedAt = :t', { '#s': 'status' }, { ':s': status, ':t': now.toISOString() });
+      // Picking no longer queues anything: the Picks screen sends to Lightroom explicitly.
+      // A photo that already went to Lightroom keeps its lightroom record whatever happens here.
+      return update(photoId, 'SET #s = :s, decidedAt = :t', { '#s': 'status' }, { ':s': status, ':t': new Date().toISOString() });
     },
 
-    setLightroom(photoId, info) {
+    setLightroom(photoId, info, status) {
+      if (status) {
+        return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr, #s = :s', { '#s': 'status' }, { ':st': info.status, ':lr': info, ':s': status });
+      }
       return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr', {}, { ':st': info.status, ':lr': info });
     },
 
-    requeueLightroom(photoId) {
+    queueLightroom(photoId) {
       const info = queuedInfo();
+      // Already queued is allowed: the bumped updatedAt makes the router re-send the message
+      // (recovery for a pick stuck on Queued). Uploading / done / duplicate are left alone.
       return update(
         photoId,
         'SET lightroomStatus = :st, lightroom = :lr',
         { '#s': 'status' },
-        { ':st': info.status, ':lr': info, ':pick': 'pick' },
-        'attribute_exists(photoId) AND #s = :pick',
+        { ':st': info.status, ':lr': info, ':pick': 'pick', ':failed': 'failed' },
+        'attribute_exists(photoId) AND #s = :pick AND (attribute_not_exists(lightroomStatus) OR lightroomStatus IN (:st, :failed))',
       );
     },
 

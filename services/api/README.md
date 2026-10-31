@@ -4,7 +4,10 @@ Node 22 Lambdas (arm64). Three entry points share one codebase:
 
 - `src/handler.ts`  the HTTP API (routes in `docs/ARCHITECTURE.md` §API) and `src/authorizer.ts` its bearer-token check
 - `src/router.ts`   Photos table stream → SQS when a row becomes `lightroomStatus = queued`
-- `src/uploader.ts` SQS → S3 RAW → Lightroom catalog (`src/adobe.ts` is the IMS/Lightroom client)
+- `src/uploader.ts` SQS → S3 RAW → Lightroom catalog (`src/adobe.ts` is the IMS/Lightroom client); marks the photo `sent` when done
+
+A pick is queued only by `POST /lightroom/send` or `POST /photos/{id}/lightroom` (the app's
+Send to Lightroom), never by the decision route (ADR-008).
 
 ```bash
 npm install
