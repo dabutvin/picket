@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import type { Api } from '../lib/api';
@@ -7,6 +7,7 @@ import { colors } from '../lib/theme';
 import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
+import { withRecent } from '../lib/recent';
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
 import { ZoomableImage } from '../components/ZoomableImage';
@@ -14,7 +15,7 @@ import { ZoomableImage } from '../components/ZoomableImage';
 const COLUMNS = 3;
 const GAP = 6;
 const PAGE = 60;
-const POLL_MS = 5000;
+const POLL_MS = 2500;
 
 /** Collapsed days per tab, kept across tab switches (each tab unmounts when another is shown). */
 const collapsedByStatus = new Map<PhotoStatus, Set<string>>();
@@ -49,6 +50,8 @@ interface Props {
   pollWhile?: (items: Photo[]) => boolean;
   /** Under the title, instead of the plain count. */
   subtitle?: (items: Photo[]) => string;
+  /** Called with the previous and next list whenever it changes (a poll, an action, a send). */
+  onItemsChange?: (prev: Photo[], next: Photo[]) => void;
   /** Next to a day's count in its header, e.g. "2 sending". */
   daySummary?: (items: Photo[]) => string;
   /** Show each thumbnail's Lightroom state. Off for the Sent tab, where it says the same thing on every cell. */
@@ -64,7 +67,7 @@ type Row =
  * capture-day headers (oldest first, as the API lists them); tap a header to collapse the day,
  * and in selection mode its circle selects or clears the whole day.
  */
-export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, cellBadges = true }: Props) {
+export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, onItemsChange, cellBadges = true }: Props) {
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<Photo[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -82,7 +85,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       else if (mode !== 'poll') setLoading(true);
       try {
         const page = await api.list(status, PAGE, mode === 'more' ? cursor : undefined);
-        setItems((p) => (mode === 'more' ? [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))] : page.items));
+        setItems((p) => withRecent(status, mode === 'more' ? [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))] : page.items));
         setCursor(page.cursor);
       } catch (e) {
         if (mode !== 'poll') Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
@@ -105,6 +108,13 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     const t = setTimeout(() => void load('poll'), POLL_MS);
     return () => clearTimeout(t);
   }, [items, pollWhile, load]);
+
+  // Tell the screen what changed (Picks counts what finished sending).
+  const prevItems = useRef(items);
+  useEffect(() => {
+    if (prevItems.current !== items) onItemsChange?.(prevItems.current, items);
+    prevItems.current = items;
+  }, [items, onItemsChange]);
 
   // Drop selections that left the list (sent, skipped, un-picked).
   useEffect(() => {

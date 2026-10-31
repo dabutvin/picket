@@ -1,6 +1,7 @@
 import { Alert, StyleSheet, View } from 'react-native';
 import type { Api } from '../lib/api';
 import { colors } from '../lib/theme';
+import { noteDecision } from '../lib/recent';
 import { Button } from '../components/Button';
 import { PhotoGrid } from './PhotoGrid';
 
@@ -22,6 +23,7 @@ export function SkippedScreen({ api }: { api: Api }) {
             color={colors.pick}
             style={styles.grow}
             onPress={() => {
+              noteDecision(photo, 'pick');
               remove(photo.photoId);
               api.decide(photo.photoId, 'pick').catch(fail('Could not update'));
             }}
@@ -30,6 +32,7 @@ export function SkippedScreen({ api }: { api: Api }) {
             title="Review again"
             color={colors.muted}
             onPress={() => {
+              noteDecision(photo, 'unreviewed');
               remove(photo.photoId);
               api.decide(photo.photoId, 'unreviewed').catch(fail('Could not update'));
             }}
