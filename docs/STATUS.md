@@ -147,6 +147,13 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 - **Conventions**: one PR per fix, squash-merged as "title (#N)", commit body
   stating the live failure; CI green first; the owner authorized merging during
   these sessions. Branches `fix/…`, `ops/…`, `docs/…`, `feat/…`.
+- **UI changes are previewed in the PR.** The `ui-preview` workflow comments
+  screenshots of every screen (web build, sample photos) on any PR touching
+  `app/`; look at them before merging, and extend
+  `app/scripts/ui-screenshots.mjs` when adding a screen. The images are raw
+  URLs on the `ui-previews` branch, which stop rendering in comments if the
+  repository goes private (the `ui-screenshots` artifact on the run still has
+  them).
 - **Harmless leftovers in S3** from the interrupted card dump on Oct 31:
   `session.db` (the camera's FTP bookkeeping file, not a photo) and a
   truncated `DSC03799.ARW` (6.8 MB, the file in flight when the battery died;

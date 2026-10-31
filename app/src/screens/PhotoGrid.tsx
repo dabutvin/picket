@@ -144,7 +144,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
           <Text style={styles.subtitle}>{subtitle ? subtitle(items) : `${items.length}${cursor ? '+' : ''}`}</Text>
         </View>
         {renderBar && items.length > 0 && (
-          <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8}>
+          <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8} testID="grid-select">
             <Text style={styles.headerAction}>{selecting ? 'Done' : 'Select'}</Text>
           </Pressable>
         )}
@@ -174,6 +174,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
                   : undefined
               }
               style={{ width: cell, height: cell }}
+              testID={`thumb-${item.photoId}`}
             >
               <Image source={{ uri: item.thumbUrl }} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
               {cellBadges && <LightroomBadge info={item.lightroom} compact />}

@@ -6,6 +6,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from './src/lib/theme';
 import { loadSettings, type Settings } from './src/lib/settings';
 import { createApi } from './src/lib/api';
+import { createDemoApi } from './src/lib/demo';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { SentScreen } from './src/screens/SentScreen';
@@ -23,15 +24,19 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'settings', label: 'Settings' },
 ];
 
+/** Start in sample-photos mode (no server): the UI-preview workflow exports the web build with this set. */
+const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_PICKET_DEMO === '1';
+
 export default function App() {
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
+  const [demo, setDemo] = useState(DEMO_FROM_ENV);
   const [tab, setTab] = useState<Tab>('review');
 
   useEffect(() => {
     loadSettings().then(setSettings, () => setSettings(null));
   }, []);
 
-  const api = useMemo(() => (settings ? createApi(settings) : null), [settings]);
+  const api = useMemo(() => (demo ? createDemoApi() : settings ? createApi(settings) : null), [demo, settings]);
   const activeTab: Tab = api ? tab : 'settings';
 
   return (
@@ -39,7 +44,7 @@ export default function App() {
       <SafeAreaProvider>
         <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
           <StatusBar style="light" />
-          {settings === undefined ? (
+          {settings === undefined && !demo ? (
             <ActivityIndicator style={{ flex: 1 }} color={colors.accent} />
           ) : activeTab === 'review' && api ? (
             <ReviewScreen api={api} />
@@ -53,10 +58,16 @@ export default function App() {
             <CameraScreen api={api} />
           ) : (
             <SettingsScreen
-              initial={settings}
+              initial={settings ?? null}
               api={api}
+              demo={demo}
+              onDemo={(on) => {
+                setDemo(on);
+                setTab(on ? 'review' : 'settings');
+              }}
               onSaved={(s) => {
                 setSettings(s);
+                setDemo(false);
                 if (s) setTab('review');
               }}
             />
@@ -66,7 +77,7 @@ export default function App() {
               const active = activeTab === t.key;
               const disabled = !api && t.key !== 'settings';
               return (
-                <Pressable key={t.key} onPress={() => setTab(t.key)} disabled={disabled} style={styles.tab}>
+                <Pressable key={t.key} onPress={() => setTab(t.key)} disabled={disabled} style={styles.tab} testID={`tab-${t.key}`}>
                   <View style={[styles.tabIndicator, active && styles.tabIndicatorActive]} />
                   <Text style={[styles.tabText, active && styles.tabActive, disabled && styles.tabDisabled]} numberOfLines={1}>
                     {t.label}

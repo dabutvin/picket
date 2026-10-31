@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { colors } from '../lib/theme';
+import { colors, MONO } from '../lib/theme';
 import { saveSettings, clearSettings, type Settings } from '../lib/settings';
 import { createApi, pair, type Api } from '../lib/api';
 import type { LightroomStatusView } from '../lib/types';
@@ -10,12 +10,15 @@ import { Button } from '../components/Button';
 interface Props {
   initial: Settings | null;
   api: Api | null;
+  /** Running against the in-app sample photos instead of a server. */
+  demo: boolean;
+  onDemo: (on: boolean) => void;
   onSaved: (s: Settings | null) => void;
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
-export function SettingsScreen({ initial, api, onSaved }: Props) {
+export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
   const [apiUrl, setApiUrl] = useState(initial?.apiUrl ?? '');
   const [code, setCode] = useState('');
   const [testing, setTesting] = useState(false);
@@ -89,6 +92,14 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
     <ScrollView contentContainerStyle={styles.root} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Settings</Text>
 
+      {demo && (
+        <View style={[styles.card, styles.demoCard]}>
+          <Text style={styles.cardTitle}>Sample photos</Text>
+          <Text style={styles.help}>You are looking at built-in sample photos. Nothing here talks to a server or to Lightroom.</Text>
+          <Button title="Leave sample photos" color={colors.muted} onPress={() => onDemo(false)} testID="demo-leave" />
+        </View>
+      )}
+
       <Text style={styles.section}>Picket API</Text>
       <Text style={styles.help}>
         The deploy workflow's summary shows the <Text style={styles.code}>ApiUrl</Text> and a one-time pairing code.
@@ -116,6 +127,12 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
         style={[styles.input, styles.mono]}
       />
       <Button title={testing ? 'Pairing…' : initial ? 'Save' : 'Pair'} onPress={() => void save()} disabled={testing} />
+      {!demo && !initial && (
+        <>
+          <Text style={[styles.help, { textAlign: 'center' }]}>Not paired yet? Try the app with sample photos.</Text>
+          <Button title="Try with sample photos" color={colors.muted} onPress={() => onDemo(true)} testID="demo-enter" />
+        </>
+      )}
 
       {api && (
         <>
@@ -176,8 +193,8 @@ const styles = StyleSheet.create({
   section: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 16 },
   help: { color: colors.muted, lineHeight: 20 },
   fine: { color: colors.muted, fontSize: 11 },
-  code: { color: colors.text, fontFamily: 'Menlo' },
-  mono: { fontFamily: 'Menlo', letterSpacing: 2 },
+  code: { color: colors.text, fontFamily: MONO },
+  mono: { fontFamily: MONO, letterSpacing: 2 },
   label: { color: colors.muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 },
   input: {
     color: colors.text,
@@ -189,6 +206,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   card: { backgroundColor: colors.card, borderRadius: 12, padding: 14, gap: 10, borderWidth: 1, borderColor: colors.border },
+  demoCard: { borderColor: colors.accent },
   cardTitle: { color: colors.text, fontWeight: '700' },
   row: { flexDirection: 'row', gap: 10 },
 });

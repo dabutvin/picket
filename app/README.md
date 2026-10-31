@@ -23,6 +23,28 @@ workflow runs both. `.eas/workflows/register-device.yml` enrolls a phone via a l
 `node scripts/apple-signing.mjs self-test` exercises the crypto/openssl parts offline.
 See `docs/OPERATIONS.md`.
 
+## Sample photos and UI previews
+
+Settings → **Try with sample photos** runs the whole app against `src/lib/demo.ts`, an
+in-memory stand-in for the API with 18 sample photos (sends to Lightroom "complete" after a
+few seconds). Nothing talks to a server. Leave it from Settings.
+
+Every pull request that touches `app/` gets a **UI preview** comment from
+`.github/workflows/ui-preview.yml`: the web export in sample-photos mode
+(`EXPO_PUBLIC_PICKET_DEMO=1`), driven by `scripts/ui-screenshots.mjs` in headless Chromium at
+phone size, one screenshot per screen and state. The images live on the `ui-previews` branch
+(latest commit per PR) and as a workflow artifact. It is a web rendering: layout and copy are
+faithful, native gestures and fonts are not. To run it locally:
+
+```bash
+EXPO_PUBLIC_PICKET_DEMO=1 npx expo export --platform web --output-dir dist
+npm install --no-save playwright && npx playwright install chromium
+node scripts/ui-screenshots.mjs dist screenshots
+```
+
+Add a screen or state to the script when you add one to the app; the script fails on any
+uncaught page error, so it doubles as a smoke test of the web build.
+
 `src/lib/types.ts` mirrors `services/api/src/types.ts`; keep them in sync.
 
 Naming: the API's `reject` status is shown as “Skip”/“Skipped” in the UI, since

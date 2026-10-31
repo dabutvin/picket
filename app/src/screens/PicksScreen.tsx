@@ -107,6 +107,7 @@ export function PicksScreen({ api }: { api: Api }) {
               color={colors.accent}
               disabled={busy || !waiting}
               onPress={() => void sendAll(helpers)}
+              testID="picks-send-all"
             />
             <Text style={styles.hint}>Long-press a photo to send or skip just a few.</Text>
           </>
@@ -122,9 +123,10 @@ export function PicksScreen({ api }: { api: Api }) {
               color={colors.accent}
               disabled={lr === 'uploading'}
               onPress={() => api.sendOne(photo.photoId).then(helpers.replace, fail('Could not send'))}
+              testID="picks-send-one"
             />
             <View style={styles.row}>
-              <Button title="Skip" color={colors.reject} style={styles.grow} onPress={() => skipPhotos([photo], helpers, helpers.close)} />
+              <Button title="Skip" color={colors.reject} onPress={() => skipPhotos([photo], helpers, helpers.close)} />
               <Button
                 title="Review again"
                 color={colors.muted}
@@ -134,7 +136,7 @@ export function PicksScreen({ api }: { api: Api }) {
                   api.decide(photo.photoId, 'unreviewed').catch(fail('Could not update'));
                 }}
               />
-              <Button title="Close" color={colors.muted} onPress={helpers.close} />
+              <Button title="Close" color={colors.muted} onPress={helpers.close} testID="detail-close" />
             </View>
           </>
         );
