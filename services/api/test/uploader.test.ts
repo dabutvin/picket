@@ -69,7 +69,7 @@ describe('uploader', () => {
     expect(create.payload.importSource.sha256).toBe('9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a');
     expect(create.payload.importSource.fileSize).toBe(4);
     expect(create.payload.captureDate).toBe('2026-10-30T10:00:00');
-    expect((calls[3]!.init!.headers as Record<string, string>)['content-type']).toBe('image/x-sony-arw');
+    expect((calls[3]!.init!.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
     const add = JSON.parse(calls[4]!.init!.body as string);
     expect(add.resources[0].payload.publishInfo.remoteId).toBe('a');
   });

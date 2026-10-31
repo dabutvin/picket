@@ -183,13 +183,16 @@ export class LightroomClient {
   }
 }
 
-/** Content type for the master upload. Override with LIGHTROOM_RAW_CONTENT_TYPE if Lightroom answers 415. */
+/**
+ * Content type for the master upload. Lightroom accepts the common image types by name and
+ * everything else, proprietary camera raws included, only as application/octet-stream: the
+ * first live ARW with image/x-sony-arw was refused with 415 InvalidContentTypeError.
+ * Override with LIGHTROOM_RAW_CONTENT_TYPE if Adobe changes its mind.
+ */
 export function contentTypeFor(fileName: string, override?: string): string {
   if (override) return override;
   const ext = fileName.toLowerCase().split('.').pop();
   switch (ext) {
-    case 'arw':
-      return 'image/x-sony-arw';
     case 'dng':
       return 'image/x-adobe-dng';
     case 'jpg':

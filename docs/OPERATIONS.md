@@ -169,10 +169,13 @@ Known limits:
   `unreviewed` growing? Then it's the app's API URL/token. Not growing? Check
   the receiver: it logs to the system journal under `picket-upload`
   (Session Manager in the AWS console).
-- **Picks stuck on "Queued"/"Failed"**: `ops → uploader-errors`. A 403 means
-  reconnect Lightroom in Settings. A 413 means Lightroom storage is full. A 415
-  means set `LIGHTROOM_RAW_CONTENT_TYPE=application/octet-stream` as a
-  repository variable, then `deploy`. Then `redrive-dlq`.
+- **Picks stuck on "Queued"/"Failed"**: `ops → lightroom-debug` (or
+  `uploader-errors`). A 403 means reconnect Lightroom in Settings. A 413 means
+  Lightroom storage is full. A 415 means Adobe rejected the content type: RAW
+  masters are sent as `application/octet-stream` (the only type Lightroom
+  accepts for proprietary raws); `LIGHTROOM_RAW_CONTENT_TYPE` as a repository
+  variable overrides it, then `deploy`. Then tap **Retry upload** on the pick,
+  or `redrive-dlq` if it reached the dead-letter queue.
 - **Change the camera password**: app → Camera → Set or Generate, then update
   the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
   Settings.

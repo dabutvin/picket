@@ -108,7 +108,7 @@ describe('LightroomClient', () => {
 
 describe('contentTypeFor', () => {
   it('maps raw extensions and honors the override', () => {
-    expect(contentTypeFor('DSC0001.ARW')).toBe('image/x-sony-arw');
+    expect(contentTypeFor('DSC0001.ARW')).toBe('application/octet-stream'); // Lightroom 415s on image/x-sony-arw
     expect(contentTypeFor('x.dng')).toBe('image/x-adobe-dng');
     expect(contentTypeFor('x.bin')).toBe('application/octet-stream');
     expect(contentTypeFor('DSC0001.ARW', 'application/octet-stream')).toBe('application/octet-stream');

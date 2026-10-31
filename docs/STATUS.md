@@ -144,9 +144,9 @@ user; her Adobe account must be added as a beta user first.
 
 ## Open questions
 
-- `Content-Type` Lightroom accepts for `.ARW` masters (`image/x-sony-arw`
-  default; `application/octet-stream` via `LIGHTROOM_RAW_CONTENT_TYPE` if 415).
-  Open until the first pick uploads.
+- ~~`Content-Type` Lightroom accepts for `.ARW` masters~~: `image/x-sony-arw`
+  was refused with 415 `InvalidContentTypeError`; ARW masters are now sent as
+  `application/octet-stream` (#21).
 - Whether the a7C II trusts Let's Encrypt's root (*Does Not Connect* untested).
 - Whether a Lightroom token refresh works (`offline_access`): the PKCE
   exchange returned tokens the server could use, but no refresh has happened.
