@@ -105,6 +105,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #25 | every swipe right uploaded at once; sent photos lingered in Picks | picking only stages; Picks tab sends in a batch (`POST /lightroom/send`); uploader marks `status = sent`; Sent tab; Review is a carousel (ADR-008) |
 | #26 | UI changes could only be judged after a TestFlight build | sample-photos mode (`app/src/lib/demo.ts`); `ui-preview` workflow screenshots every screen on PRs touching `app/` |
 | #28 | no way to move around a long review queue except one swipe at a time | **▦ Jump to** on the Review header: grid of the queue by capture day, tap to jump the carousel there (`app/src/components/QueueGrid.tsx`) |
+| #30 | no way to get a photo onto the phone for a quick share | **Save to Photos** / **Share…** in every detail view: the 2048 px JPEG preview (never the RAW); add-only Photos permission; needs a new build (`expo-media-library`, `expo-file-system`, `expo-sharing`) |
 | #29 | Picks / Sent / Skipped were one flat grid | grouped under collapsible capture-day headers (collapsed state kept across tab switches); in Select mode a header's circle takes the whole day; Picks headers show "N sending · N failed" |
 
 ## External accounts and secrets (names only)

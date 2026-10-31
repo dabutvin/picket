@@ -30,7 +30,16 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Picket saves the JPEG preview of a photo you choose to your library.",
+          "photosPermission": "Picket only adds photos to your library; it does not read it.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "expo-sharing"
     ],
     "scheme": [
       "picket",

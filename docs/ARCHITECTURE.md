@@ -86,6 +86,10 @@ it to `sent`, and it leaves Picks for the Sent screen, which is read-only. The
 Skipped screen lists `reject` photos so any skip can become a pick later.
 Nothing is ever deleted from S3 by a swipe.
 
+Any photo's detail view can **Save to Photos** or **Share…** the JPEG preview
+(2048 px long edge, under 1 MB), which is the only form of a photo that ever
+reaches the phone. The RAW goes to Lightroom and nowhere else (ADR-006).
+
 The app has a **sample-photos mode** (`app/src/lib/demo.ts`, Settings → *Try with
 sample photos*, or `EXPO_PUBLIC_PICKET_DEMO=1`) that stands in for the API, and a
 web build; the `ui-preview` workflow screenshots every screen from it on each

@@ -6,7 +6,9 @@ import type { Photo, PhotoStatus } from '../lib/types';
 import { colors } from '../lib/theme';
 import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
+import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
 import { LightroomBadge } from '../components/LightroomBadge';
+import { Button } from '../components/Button';
 
 const COLUMNS = 3;
 const GAP = 6;
@@ -71,6 +73,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedByStatus.get(status) ?? new Set());
+  const [exporting, setExporting] = useState<'save' | 'share' | 'saved' | null>(null);
 
   const load = useCallback(
     async (mode: 'reset' | 'more' | 'refresh' | 'poll') => {
@@ -131,7 +134,10 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         setItems((list) => list.filter((x) => !gone.has(x.photoId)));
         setSelected((s) => (s && gone.has(s.photoId) ? null : s));
       },
-      close: () => setSelected(null),
+      close: () => {
+        setSelected(null);
+        setExporting(null);
+      },
       reload: () => void load('poll'),
     }),
     [load],
@@ -263,6 +269,50 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
             <LightroomBadge info={selected.lightroom} />
           </View>
           {selected.lightroom?.error && <Text style={styles.error}>{selected.lightroom.error}</Text>}
+          <View style={styles.exportRow}>
+            <Button
+              title={exporting === 'save' ? 'Saving…' : exporting === 'saved' ? 'Saved to Photos ✓' : 'Save to Photos'}
+              color={colors.muted}
+              style={styles.grow}
+              disabled={exporting === 'save' || exporting === 'share'}
+              testID="detail-save"
+              onPress={() => {
+                setExporting('save');
+                saveToPhotos(selected).then(
+                  (outcome) => {
+                    if (outcome === 'denied') {
+                      setExporting(null);
+                      Alert.alert('No access to Photos', 'Allow Picket to add photos in Settings → Picket → Photos.');
+                      return;
+                    }
+                    setExporting('saved');
+                    setTimeout(() => setExporting(null), 2000);
+                  },
+                  (e: unknown) => {
+                    setExporting(null);
+                    Alert.alert('Could not save', e instanceof Error ? e.message : String(e));
+                  },
+                );
+              }}
+            />
+            <Button
+              title={exporting === 'share' ? 'Preparing…' : 'Share…'}
+              color={colors.muted}
+              style={styles.grow}
+              disabled={exporting === 'save' || exporting === 'share'}
+              testID="detail-share"
+              onPress={() => {
+                setExporting('share');
+                sharePreview(selected)
+                  .then((ok) => {
+                    if (!ok) Alert.alert('Sharing is not available on this device');
+                  })
+                  .catch((e: unknown) => Alert.alert('Could not share', e instanceof Error ? e.message : String(e)))
+                  .finally(() => setExporting(null));
+              }}
+            />
+          </View>
+          <Text style={styles.exportNote}>{EXPORT_NOTE}</Text>
           <View style={styles.sheetActions}>{renderActions(selected, helpers)}</View>
         </View>
       )}
@@ -311,5 +361,8 @@ const styles = StyleSheet.create({
   fileName: { color: colors.text, fontWeight: '600' },
   meta: { color: colors.muted, fontSize: 12 },
   error: { color: colors.reject, fontSize: 12 },
+  exportRow: { flexDirection: 'row', gap: 10 },
+  grow: { flex: 1 },
+  exportNote: { color: colors.muted, fontSize: 11, lineHeight: 15 },
   sheetActions: { gap: 10 },
 });
