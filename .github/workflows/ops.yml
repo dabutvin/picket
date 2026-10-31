@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
+        options: [status, pairing-code, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action
         required: false
@@ -66,7 +66,7 @@ jobs:
         run: |
           aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs' > outputs.json
           out() { jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue' outputs.json; }
-          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl; do
+          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl PairingSecret; do
             echo "$k=$(out $k)" >> "$GITHUB_OUTPUT"
           done
 
@@ -97,6 +97,22 @@ jobs:
             for s in queued uploading done duplicate failed; do echo "| $s | $(count byLightroomStatus lightroomStatus $s) |"; done
             echo
             echo "Upload queue: $qd waiting · dead-letter: $dd"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Issue an app pairing code
+        if: inputs.action == 'pairing-code'
+        env:
+          SECRET: ${{ steps.outs.outputs.PairingSecret }}
+        run: |
+          set -euo pipefail
+          raw="$(tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c 8)"
+          code="${raw:0:4}-${raw:4:4}"
+          expires="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          aws secretsmanager put-secret-value --secret-id "$SECRET" --secret-string "{\"code\":\"$code\",\"expiresAt\":\"$expires\"}" >/dev/null
+          {
+            echo "## Pair the app"
+            echo
+            echo "Settings → API URL \`${{ steps.outs.outputs.ApiUrl }}\` → pairing code **$code** (valid until $expires UTC, one use)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Receiver start/stop

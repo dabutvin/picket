@@ -6,7 +6,7 @@ Expo SDK 58, TypeScript. Three screens behind a plain tab bar:
 - **Picks**: grid of `pick` photos with their Lightroom upload state. Tap one to un-pick or retry a failed upload.
 - **Skipped**: grid of `reject` photos. Tap one to make it a pick or send it back to Review.
 - **Camera**: the FTP settings the a7C II needs (tap to copy), set/generate the password (the receiver reloads it over SSM), start/stop the receiver.
-- **Settings**: API URL + bearer token (from the CDK outputs) in SecureStore, and **Connect Lightroom** (Adobe OAuth with PKCE; tokens go to the backend, not the phone).
+- **Settings**: API URL + one-time pairing code (from the deploy summary) → the token lands in SecureStore; and **Connect Lightroom** (Adobe OAuth with PKCE; tokens go to the backend, not the phone).
 
 ```bash
 npm install

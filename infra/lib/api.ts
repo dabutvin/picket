@@ -24,8 +24,11 @@ export interface ApiProps {
   lightroom: LightroomSettings;
   /** Secret holding the user's Lightroom tokens (owned by the Lightroom construct). */
   lightroomConnection: secretsmanager.ISecret;
-  /** Serve the API at https://<hostName> with an ACM certificate validated in `zone`. Requires the zone to be delegated. */
-  dns?: { zone: route53.IHostedZone; hostName: string };
+  /**
+   * Serve the API at https://<hostName>. Route 53 mode: a certificate is created and validated in `zone`
+   * and an alias record added. External-DNS mode: pass an ISSUED `certificateArn`; the CNAME is added by hand.
+   */
+  dns?: { hostName: string; zone?: route53.IHostedZone; certificateArn?: string };
   /** The FTPS receiver the app manages (settings, password rotation, start/stop). */
   receiver: Receiver;
 }
@@ -39,6 +42,10 @@ const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
 export class Api extends Construct {
   readonly url: string;
   readonly token: secretsmanager.Secret;
+  /** One-time app pairing codes (see services/api/src/pairing.ts). */
+  readonly pairing: secretsmanager.Secret;
+  /** Regional domain name of the custom domain, for an external CNAME. */
+  readonly domainTarget?: string;
 
   constructor(scope: Construct, id: string, props: ApiProps) {
     super(scope, id);
@@ -46,6 +53,11 @@ export class Api extends Construct {
     this.token = new secretsmanager.Secret(this, 'Token', {
       description: 'Picket: bearer token the app sends to the API',
       generateSecretString: { excludePunctuation: true, includeSpace: false, passwordLength: 40 },
+    });
+
+    this.pairing = new secretsmanager.Secret(this, 'Pairing', {
+      description: 'Picket: short-lived one-time code the app exchanges for the API token',
+      secretStringValue: cdk.SecretValue.unsafePlainText('{}'),
     });
 
     const common = {
@@ -94,9 +106,14 @@ export class Api extends Construct {
         RECEIVER_PASV_MAX: String(props.receiver.passivePorts.max),
         RECEIVER_PASSWORD_SECRET_ARN: props.receiver.ftpPassword.secretArn,
         RECEIVER_INSTANCE_ID: props.receiver.instance.instanceId,
+        PAIRING_SECRET_ARN: this.pairing.secretArn,
+        TOKEN_SECRET_ARN: this.token.secretArn,
       },
       description: 'Picket: photos API',
     });
+    this.pairing.grantRead(apiFn);
+    this.pairing.grantWrite(apiFn);
+    this.token.grantRead(apiFn);
     // Camera settings are managed from the app: read/rotate the FTP password, reload it on the
     // receiver over SSM, start/stop the instance.
     props.receiver.ftpPassword.grantRead(apiFn);
@@ -135,6 +152,8 @@ export class Api extends Construct {
     });
 
     const integration = new HttpLambdaIntegration('ApiIntegration', apiFn);
+    // Pairing is the one route without the bearer token: it exchanges a one-time code for it.
+    http.addRoutes({ path: '/pair', methods: [apigw.HttpMethod.POST], integration, authorizer: new apigw.HttpNoneAuthorizer() });
     http.addRoutes({ path: '/photos', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/photos/{id}/decision', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/photos/{id}/lightroom', methods: [apigw.HttpMethod.POST], integration });
@@ -148,17 +167,22 @@ export class Api extends Construct {
     this.url = http.apiEndpoint;
 
     if (props.dns) {
-      const certificate = new acm.Certificate(this, 'Certificate', {
-        domainName: props.dns.hostName,
-        validation: acm.CertificateValidation.fromDns(props.dns.zone),
-      });
+      const certificate = props.dns.certificateArn
+        ? acm.Certificate.fromCertificateArn(this, 'Certificate', props.dns.certificateArn)
+        : new acm.Certificate(this, 'Certificate', {
+            domainName: props.dns.hostName,
+            validation: acm.CertificateValidation.fromDns(props.dns.zone),
+          });
       const domain = new apigw.DomainName(this, 'Domain', { domainName: props.dns.hostName, certificate });
       new apigw.ApiMapping(this, 'Mapping', { api: http, domainName: domain });
-      new route53.ARecord(this, 'DnsRecord', {
-        zone: props.dns.zone,
-        recordName: props.dns.hostName,
-        target: route53.RecordTarget.fromAlias(new targets.ApiGatewayv2DomainProperties(domain.regionalDomainName, domain.regionalHostedZoneId)),
-      });
+      if (props.dns.zone) {
+        new route53.ARecord(this, 'DnsRecord', {
+          zone: props.dns.zone,
+          recordName: props.dns.hostName,
+          target: route53.RecordTarget.fromAlias(new targets.ApiGatewayv2DomainProperties(domain.regionalDomainName, domain.regionalHostedZoneId)),
+        });
+      }
+      this.domainTarget = domain.regionalDomainName;
       this.url = `https://${props.dns.hostName}`;
     }
   }

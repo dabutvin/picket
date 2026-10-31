@@ -138,18 +138,23 @@ only executor. Camera settings should be managed in the app, not in a console.
 **Decision.**
 - Every operation is a `workflow_dispatch` button: `deploy`, `ops`,
   `app-build`. Results go to the run summary; no secret is ever printed.
-- GitHub secrets: AWS credentials (keys or an OIDC role), `EXPO_TOKEN`, the
-  Apple Team key, and `PICKET_API_TOKEN` (the app's pairing token, which has to
-  be provisioned somewhere the app isn't). Secrets Manager holds only machine
-  state: the camera password (managed through the app's Camera tab, which
-  rotates it and reloads the receiver over SSM), the API token copy, the iOS
-  signing material, and the Lightroom OAuth tokens.
+- GitHub secrets: AWS credentials (keys or an OIDC role), `EXPO_TOKEN` and the
+  Apple Team key. The app pairs through a 30-minute, single-use code that the
+  deploy or ops workflow writes to Secrets Manager and prints; `POST /pair`
+  redeems it for the bearer token, so no human ever handles the token. Secrets
+  Manager holds only machine state: the camera password (managed through the
+  app's Camera tab, which rotates it and reloads the receiver over SSM), the API
+  token, the pairing code, the iOS signing material, and the Lightroom tokens.
 - iOS signing goes through the App Store Connect API from the workflow, because
   EAS CLI will not create a distribution certificate non-interactively.
-- `picket.photos` is wired through one Route 53 zone: `ftp.` for the receiver
-  (Let's Encrypt via certbot on the instance) and `api.` for the HTTP API (ACM).
-  The API domain is only created once delegation is confirmed, so a
-  not-yet-propagated registrar change can't stall a deploy.
+- `picket.photos` is registered through Netlify, whose registered domains
+  can't be delegated elsewhere, so DNS records are added by hand in Netlify's
+  panel from the deploy summary: `ftp` A (receiver, Let's Encrypt via certbot
+  on the instance), the ACM validation CNAME, and `api` CNAME. The workflow
+  requests the certificate outside CloudFormation and only attaches the custom
+  domain once it is issued, so pending validation never stalls a deploy. If a
+  Route 53 zone for the domain ever appears in the account, the same workflow
+  switches to managing the records itself.
 
 **Consequences.** The camera password, and the receiver's on/off switch, are a
 tap in the app. Adding a phone is two buttons. Nothing in the

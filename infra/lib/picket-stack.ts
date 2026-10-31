@@ -11,10 +11,15 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 export interface DnsSettings {
   /** Apex domain, e.g. picket.photos. */
   domainName: string;
-  /** Existing Route 53 hosted zone for the domain (looked up by the deploy workflow, so synth needs no AWS access). */
-  hostedZoneId: string;
-  /** False until the registrar points at the zone's name servers: skips the API certificate, which would otherwise block the deploy. */
-  delegated: boolean;
+  /**
+   * Route 53 mode: an existing hosted zone for the domain (looked up by the deploy workflow).
+   * Omit when DNS lives elsewhere (Netlify, ...): records are then added by hand from the deploy summary.
+   */
+  hostedZoneId?: string;
+  /** Route 53 mode: false until the registrar points at the zone, which would otherwise block the deploy on certificate validation. */
+  delegated?: boolean;
+  /** External-DNS mode: an ISSUED ACM certificate for api.<domain>, requested by the deploy workflow. */
+  apiCertificateArn?: string;
 }
 
 export interface PicketStackProps extends cdk.StackProps {
@@ -32,14 +37,15 @@ export class PicketStack extends cdk.Stack {
 
     const storage = new Storage(this, 'Storage');
 
-    const zone = props.dns
+    const zone = props.dns?.hostedZoneId
       ? route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.dns.hostedZoneId, zoneName: props.dns.domainName })
       : undefined;
 
     const receiver = new Receiver(this, 'Receiver', {
       bucket: storage.bucket,
       rawPrefix: storage.rawPrefix,
-      dns: zone && props.dns ? { zone, hostName: `ftp.${props.dns.domainName}` } : undefined,
+      // With a domain, the receiver always answers to ftp.<domain>; the A record is ours only in Route 53 mode.
+      dns: props.dns ? { zone, hostName: `ftp.${props.dns.domainName}` } : undefined,
     });
 
     // Internal state of app/scripts/apple-signing.mjs (iOS key, certificate, profile). Not user-facing.
@@ -69,7 +75,13 @@ export class PicketStack extends cdk.Stack {
       table: storage.table,
       lightroom: props.lightroom,
       lightroomConnection: lightroom.connection,
-      dns: zone && props.dns?.delegated ? { zone, hostName: `api.${props.dns.domainName}` } : undefined,
+      dns: props.dns
+        ? zone && props.dns.delegated
+          ? { zone, hostName: `api.${props.dns.domainName}` }
+          : props.dns.apiCertificateArn
+            ? { hostName: `api.${props.dns.domainName}`, certificateArn: props.dns.apiCertificateArn }
+            : undefined
+        : undefined,
       receiver,
     });
 
@@ -80,7 +92,18 @@ export class PicketStack extends cdk.Stack {
       value: receiver.hostName,
       description: 'Host Name to enter on the camera (FTP Transfer > Server Setting)',
     });
-    new cdk.CfnOutput(this, 'Domain', { value: props.dns ? `${props.dns.domainName} (zone ${props.dns.hostedZoneId}, delegated: ${props.dns.delegated})` : '(none)' });
+    new cdk.CfnOutput(this, 'Domain', {
+      value: props.dns
+        ? props.dns.hostedZoneId
+          ? `${props.dns.domainName} (Route 53 zone ${props.dns.hostedZoneId}, delegated: ${props.dns.delegated})`
+          : `${props.dns.domainName} (external DNS${props.dns.apiCertificateArn ? ', API certificate attached' : ', API certificate pending'})`
+        : '(none)',
+    });
+    new cdk.CfnOutput(this, 'ApiDomainTarget', {
+      value: api.domainTarget ?? '(no custom domain yet)',
+      description: 'External DNS: create CNAME api.<domain> -> this value',
+    });
+    new cdk.CfnOutput(this, 'PairingSecret', { value: api.pairing.secretName, description: 'Workflows write one-time app pairing codes here' });
     new cdk.CfnOutput(this, 'FtpUser', { value: receiver.ftpUser });
     new cdk.CfnOutput(this, 'ReceiverInstanceId', { value: receiver.instance.instanceId });
     new cdk.CfnOutput(this, 'FtpPasswordSecret', {

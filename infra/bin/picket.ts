@@ -24,16 +24,22 @@ const lightroom = {
 };
 
 /**
- * DNS: the deploy workflow finds the Route 53 zone for the domain and passes
- * `-c domainName=picket.photos -c hostedZoneId=Z... -c dnsDelegated=true|false`.
- * Without these, synth/deploy produce an IP-only receiver and the default API URL.
+ * DNS, set by the deploy workflow:
+ *   external DNS (Netlify, ...):  -c domainName=picket.photos [-c apiCertificateArn=arn:aws:acm:...]  (records added by hand)
+ *   Route 53:                     -c domainName=... -c hostedZoneId=Z... -c dnsDelegated=true|false
+ * Without a domainName, synth/deploy produce an IP-only receiver and the default API URL.
  */
 const domainName = ctx('domainName', 'DOMAIN_NAME');
 const hostedZoneId = ctx('hostedZoneId', 'HOSTED_ZONE_ID');
-const dns =
-  domainName && hostedZoneId
-    ? { domainName, hostedZoneId, delegated: String(ctx('dnsDelegated', 'DNS_DELEGATED') ?? 'false') === 'true' }
-    : undefined;
+const apiCertificateArn = ctx('apiCertificateArn', 'API_CERTIFICATE_ARN');
+const dns = domainName
+  ? {
+      domainName,
+      hostedZoneId: hostedZoneId || undefined,
+      delegated: hostedZoneId ? String(ctx('dnsDelegated', 'DNS_DELEGATED') ?? 'false') === 'true' : undefined,
+      apiCertificateArn: apiCertificateArn || undefined,
+    }
+  : undefined;
 
 new PicketStack(app, 'Picket', {
   lightroom,

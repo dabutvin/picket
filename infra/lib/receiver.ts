@@ -16,8 +16,8 @@ export interface ReceiverProps {
   /** Passive-mode data port range opened on the security group. */
   passivePorts?: { min: number; max: number };
   instanceType?: ec2.InstanceType;
-  /** When set, an A record `<hostName>` is created in `zone` and the receiver gets a Let's Encrypt certificate for it. */
-  dns?: { zone: route53.IHostedZone; hostName: string };
+  /** The receiver answers to `hostName` and obtains a Let's Encrypt certificate for it. The A record is created only when `zone` is given. */
+  dns?: { zone?: route53.IHostedZone; hostName: string };
 }
 
 /**
@@ -68,7 +68,7 @@ export class Receiver extends Construct {
     const eip = new ec2.CfnEIP(this, 'Eip', { domain: 'vpc' });
     this.publicIp = eip.attrPublicIp;
     this.hostName = props.dns?.hostName ?? this.publicIp;
-    if (props.dns) {
+    if (props.dns?.zone) {
       new route53.ARecord(this, 'DnsRecord', {
         zone: props.dns.zone,
         recordName: props.dns.hostName,
