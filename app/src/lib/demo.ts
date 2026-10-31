@@ -25,12 +25,13 @@ function samplePhoto(n: number, status: PhotoStatus, lightroom?: LightroomInfo):
   const seed = `picket-${n}`;
   const minute = String((n * 7) % 60).padStart(2, '0');
   const hour = String(9 + Math.floor(n / 4)).padStart(2, '0');
-  const capturedAt = `2026-10-30T${hour}:${minute}:${String((n * 13) % 60).padStart(2, '0')}`;
+  const day = n <= 4 ? '29' : n <= 12 ? '30' : '31';
+  const capturedAt = `2026-10-${day}T${hour}:${minute}:${String((n * 13) % 60).padStart(2, '0')}`;
   return {
     photoId: `demo-${String(n).padStart(2, '0')}`,
     status,
     capturedAt,
-    uploadedAt: `2026-10-30T${hour}:${minute}:30Z`,
+    uploadedAt: `2026-10-${day}T${hour}:${minute}:30Z`,
     decidedAt: status === 'unreviewed' ? undefined : `2026-10-30T18:${minute}:00Z`,
     rawKey: `raw/2026/10/30/DSC0${3800 + n}.ARW`,
     fileName: `DSC0${3800 + n}.ARW`,

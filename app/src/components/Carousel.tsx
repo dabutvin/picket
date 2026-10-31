@@ -30,10 +30,13 @@ export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, re
   const start = useSharedValue(0);
   const lastIndex = items.length; // the end page
 
-  // Programmatic moves (undo, reset, a rotation) and the rest position after a gesture.
+  // Programmatic moves (undo, reset, a jump from the grid, a rotation) and the rest position
+  // after a gesture. Only neighbours are mounted, so anything further than a page lands at once.
   useEffect(() => {
     const target = index * width;
-    if (Math.abs(offset.value - target) > 1) offset.value = withTiming(target, { duration: 220 });
+    const delta = Math.abs(offset.value - target);
+    if (delta <= 1) return;
+    offset.value = delta > width * 1.5 ? target : withTiming(target, { duration: 220 });
   }, [index, width, offset]);
 
   const pan = Gesture.Pan()

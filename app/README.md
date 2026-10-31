@@ -2,7 +2,7 @@
 
 Expo SDK 58, TypeScript. Six screens behind a plain tab bar:
 
-- **Review**: carousel over `unreviewed` photos, oldest first. Swipe left/right to look ahead and go back; flick a photo up (or tap “Pick”) → `pick`, flick down (or “Skip”) → `reject`; Undo puts the last one back where it was. Nothing is uploaded from here. (`src/components/Carousel.tsx` is the pager, `ReviewCard.tsx` the flickable card.)
+- **Review**: carousel over `unreviewed` photos, oldest first. Swipe left/right to look ahead and go back; flick a photo up (or tap “Pick”) → `pick`, flick down (or “Skip”) → `reject`; Undo puts the last one back where it was. Tap the position counter (“▦ Jump to”) for a grid of the whole queue by capture day and tap a photo to jump the carousel there. Nothing is uploaded from here. (`src/components/Carousel.tsx` is the pager, `ReviewCard.tsx` the flickable card.)
 - **Picks**: grid of `pick` photos waiting to go to Lightroom. **Send all to Lightroom**, or long-press / “Select” to send or skip a few. Tap one to send it alone, retry a failed upload, skip it, or send it back to Review. Polls while anything is queued or uploading; a photo leaves this tab once Lightroom has it.
 - **Sent**: grid of `sent` photos (in the Lightroom “Picket” album). Read-only.
 - **Skipped**: grid of `reject` photos. Tap one to make it a pick or send it back to Review.

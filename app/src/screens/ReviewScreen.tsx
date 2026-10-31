@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import type { Api } from '../lib/api';
 import type { Photo, Stats } from '../lib/types';
@@ -7,6 +7,7 @@ import { colors } from '../lib/theme';
 import { Button } from '../components/Button';
 import { Carousel } from '../components/Carousel';
 import { ReviewCard, type CardDecision } from '../components/ReviewCard';
+import { QueueGrid } from '../components/QueueGrid';
 
 const PAGE = 30;
 const REFILL_AT = 8;
@@ -27,6 +28,7 @@ export function ReviewScreen({ api }: { api: Api }) {
   const [last, setLast] = useState<{ photo: Photo; decision: CardDecision; index: number } | null>(null);
   const [decided, setDecided] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [grid, setGrid] = useState(false);
   const command = useRef<((d: CardDecision) => void) | null>(null);
   const loadingRef = useRef(false);
   // The decision callbacks read the queue through a ref so their identity stays stable
@@ -147,7 +149,10 @@ export function ReviewScreen({ api }: { api: Api }) {
             {stats ? ` · ${stats.photos.pick ?? 0} to send · ${stats.photos.sent ?? 0} in Lightroom` : ''}
           </Text>
         </View>
-        <Text style={styles.position}>{position}</Text>
+        <Pressable onPress={() => setGrid(true)} disabled={!queue.length} hitSlop={8} style={styles.jump} testID="review-grid">
+          <Text style={styles.position}>{position}</Text>
+          {queue.length > 0 && <Text style={styles.jumpLabel}>▦ Jump to</Text>}
+        </Pressable>
       </View>
 
       <Carousel
@@ -166,6 +171,21 @@ export function ReviewScreen({ api }: { api: Api }) {
         <Button title="Undo" color={colors.muted} onPress={undo} disabled={!last} />
         <Button title="↑ Pick" color={colors.pick} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
       </View>
+
+      {grid && (
+        <QueueGrid
+          photos={queue}
+          index={index}
+          more={!exhausted}
+          loading={loading}
+          onPick={(i) => {
+            setIndex(i);
+            setGrid(false);
+          }}
+          onEndReached={() => void loadMore()}
+          onClose={() => setGrid(false)}
+        />
+      )}
     </View>
   );
 }
@@ -175,7 +195,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 16 },
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
   subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  position: { color: colors.muted, fontVariant: ['tabular-nums'], paddingBottom: 3 },
+  jump: { alignItems: 'flex-end', paddingBottom: 3 },
+  position: { color: colors.muted, fontVariant: ['tabular-nums'] },
+  jumpLabel: { color: colors.accent, fontSize: 12, fontWeight: '600', marginTop: 2 },
   hint: { color: colors.muted, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 },
   actions: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 16 },
   action: { flex: 1 },

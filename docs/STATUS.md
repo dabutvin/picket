@@ -104,6 +104,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moved the 526 existing rows (applied 16:22Z) |
 | #25 | every swipe right uploaded at once; sent photos lingered in Picks | picking only stages; Picks tab sends in a batch (`POST /lightroom/send`); uploader marks `status = sent`; Sent tab; Review is a carousel (ADR-008) |
 | #26 | UI changes could only be judged after a TestFlight build | sample-photos mode (`app/src/lib/demo.ts`); `ui-preview` workflow screenshots every screen on PRs touching `app/` |
+| #28 | no way to move around a long review queue except one swipe at a time | **▦ Jump to** on the Review header: grid of the queue by capture day, tap to jump the carousel there (`app/src/components/QueueGrid.tsx`) |
 
 ## External accounts and secrets (names only)
 

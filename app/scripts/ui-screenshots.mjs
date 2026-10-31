@@ -53,6 +53,12 @@ await shot('01-review', 'Review: the carousel, first photo');
 await page.getByText('↑ Pick', { exact: true }).click();
 await settle(900);
 await shot('02-review-after-pick', 'Review: after flicking one up (next photo slid in, Undo enabled)');
+await byId('review-grid').click();
+await settle(1500);
+await shot('02b-review-jump-grid', 'Review: "Jump to" grid of the queue by day (current photo outlined)');
+await byId('review-thumb-demo-08').click();
+await settle(1200);
+await shot('02c-review-after-jump', 'Review: after tapping a photo in the grid (position jumped)');
 
 await byId('tab-picks').click();
 await settle(1500);
