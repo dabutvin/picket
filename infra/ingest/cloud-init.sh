@@ -144,7 +144,9 @@ ln -sf ../conf/PureDB /etc/pure-ftpd/auth/50pure
 rm -f /etc/pure-ftpd/auth/65unix /etc/pure-ftpd/auth/70pam
 
 # Virtual FTP user backed by one system account.
-id -u ftpcamera >/dev/null 2>&1 || useradd --system --home-dir /srv/ftp --shell /usr/sbin/nologin ftpcamera
+# Fixed uid above 1000: pure-ftpd's MinUID (set below) refuses to log a virtual user in as a
+# system account, and `useradd --system` would pick a uid under 1000 (999 on Ubuntu 24.04).
+id -u ftpcamera >/dev/null 2>&1 || useradd --uid 1500 --user-group --no-create-home --home-dir /srv/ftp --shell /usr/sbin/nologin ftpcamera
 mkdir -p "/srv/ftp/${FTP_USER}"
 chown -R ftpcamera:ftpcamera /srv/ftp
 chmod 0750 /srv/ftp "/srv/ftp/${FTP_USER}"
