@@ -91,8 +91,8 @@ Picks that fail six times land on the dead-letter queue (`UploadDlqUrl` output).
 
 ## Status
 
-Kick-off scaffold plus phone-only operations. Everything synthesizes, typechecks
-and passes tests; nothing has been deployed yet. First deploy and a real camera → S3 → swipe → Lightroom
-round trip is the next milestone. Two things to confirm on that first run: the
-IMS scope names and the `Content-Type` Lightroom wants for `.ARW` masters (see
-ADR-006). See `docs/ARCHITECTURE.md` → "Not in scope yet" for the rest.
+Everything synthesizes, typechecks and passes tests, but **nothing is deployed
+yet**: the two `deploy` runs so far failed on AWS permissions before creating
+anything, and no camera, app, Lightroom or DNS step has run against a live
+system. [`docs/STATUS.md`](docs/STATUS.md) has the exact state, the blockers,
+and the next steps in order.
