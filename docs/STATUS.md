@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated: 2026-10-31 13:10Z, end of the second live session. **Read this
+Last updated: 2026-10-31 16:30Z, after the photo-id migration. **Read this
 first.** The rest of `docs/` describes the intended system; this file says what
 is real, what to do next, and how the previous agents operated it.
 
@@ -15,11 +15,10 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 ## Resume here
 
-0. **Run the photo-id migration once** (after #23 is deployed): `ops →
-   migrate-photo-ids` with the confirm box empty is a dry run that lists the
-   rows to move; run it again with `migrate` in the box to apply. Until then,
-   photos uploaded before #23 would get a second row if the camera re-sent them
-   on a later day.
+0. ~~Run the photo-id migration~~ Done 2026-10-31 16:22Z (`ops` run 13,
+   confirm=`migrate`): 642 rows, 526 moved to the frame-based id, 116 already
+   current, no merges, no skips. Camera re-sends are now safe on any day
+   (*FTP Transfer → Transfer Status → Only Failed Transfer*).
 1. **Watch the first Lightroom token refresh.** Adobe access tokens expire
    after about a day; the uploader refreshes with the stored refresh token on
    its next pick. A pick failing with a 403 tomorrow means the refresh path
@@ -65,11 +64,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 | part | result |
 |---|---|
-| `deploy` | 14 runs. #8 created the stack; #9–#11 replaced the receiver after cloud-init fixes; #12–#14 updated Lambdas only (~2 min, no receiver impact) |
+| `deploy` | 15 runs. #8 created the stack; #9–#11 replaced the receiver after cloud-init fixes; #12–#15 updated Lambdas only (~2 min, no receiver impact) |
 | `infra/ingest/cloud-init.sh` | boots cleanly; Let's Encrypt certificate ~10 s after boot |
 | `app-build` register-device / build preview / build production | all worked: ad hoc install from the EAS link; TestFlight via `--auto-submit` with the App Store Connect app looked up by bundle id |
-| `ops` | `pairing-code`, `receiver-logs`, `lightroom-debug` used and working; `status`, `dns`, `uploader-errors`, `redrive-dlq`, `reload-ftp-password`, receiver start/stop not yet exercised |
-| camera → receiver | FTPES, TLSv1.2 against the Let's Encrypt certificate, *Root Certificate Error → Connect*; uploads 45–46 MB at 4–8 MB/s |
+| `ops` | `pairing-code`, `receiver-logs`, `lightroom-debug`, `migrate-photo-ids` (dry run + apply) used and working; `status`, `dns`, `uploader-errors`, `redrive-dlq`, `reload-ftp-password`, receiver start/stop not yet exercised |
+| camera → receiver | FTPES, TLSv1.2 against the Let's Encrypt certificate, *Root Certificate Error → Connect*; uploads 45–46 MB at 4–8 MB/s. An 800-photo card dump ran at ~4 MB/s (the t4g.nano network baseline, 0.032 Gbps) until the camera battery died; the owner chose to keep the nano and send incrementally |
 | receiver → S3 → previews → app | per-shot hook works since #14 (the first two photos went through the 5-minute sweep instead) |
 | Lightroom | login/redirect as Elise, `/v2/account` entitled, catalog found, master upload accepted as octet-stream, album *Picket*, pick status **In Lightroom** |
 | CI | 53 API tests, preview tests, `cdk synth`, app typecheck: green on every PR |
@@ -91,7 +90,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #19 | DLQ stack output is `LightroomUploadDlqUrlE37DE845` | ops resolves CDK-suffixed output keys; debug step tolerates failing calls |
 | #20 | uploader's first write: DynamoDB "ExpressionAttributeNames must not be empty" | update helper omits the empty map; regression test against the real store |
 | #21 | Adobe 415 `InvalidContentTypeError` on `image/x-sony-arw` | ARW masters sent as `application/octet-stream` |
-| #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moves existing rows |
+| #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moved the 526 existing rows (applied 16:22Z) |
 
 ## External accounts and secrets (names only)
 
@@ -135,6 +134,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 - **Conventions**: one PR per fix, squash-merged as "title (#N)", commit body
   stating the live failure; CI green first; the owner authorized merging during
   these sessions. Branches `fix/…`, `ops/…`, `docs/…`, `feat/…`.
+- **Harmless leftovers in S3** from the interrupted card dump on Oct 31:
+  `session.db` (the camera's FTP bookkeeping file, no EXIF, no row) and a
+  truncated `DSC03799.ARW` (6.8 MB, the file in flight when the battery died;
+  a re-send replaces it as the row's `rawKey`). Earlier uploads of re-sent
+  frames also stay in S3 unreferenced. Nothing cleans these up yet.
 - **Camera settings in use**: Secure Protocol On, Passive On, Root Certificate
   Error → Connect, port 21, user `camera`, Auto FTP Transfer On, RAW only.
 
