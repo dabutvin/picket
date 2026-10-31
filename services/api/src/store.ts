@@ -50,11 +50,13 @@ export const queuedInfo = (now = new Date()): LightroomInfo => ({ status: 'queue
 
 const isConditionFailure = (err: unknown) => (err as { name?: string }).name === 'ConditionalCheckFailedException';
 
-export function createStore(cfg: StoreConfig): Store {
-  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-    marshallOptions: { removeUndefinedValues: true },
-  });
-  const s3 = new S3Client({});
+export function createStore(cfg: StoreConfig, clients: { ddb?: DynamoDBDocumentClient; s3?: S3Client } = {}): Store {
+  const ddb =
+    clients.ddb ??
+    DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+      marshallOptions: { removeUndefinedValues: true },
+    });
+  const s3 = clients.s3 ?? new S3Client({});
 
   async function update(
     photoId: string,
@@ -70,7 +72,8 @@ export function createStore(cfg: StoreConfig): Store {
           Key: { photoId },
           ConditionExpression: condition,
           UpdateExpression: expr,
-          ExpressionAttributeNames: names,
+          // DynamoDB rejects an empty map ("ExpressionAttributeNames must not be empty"); omit it when unused.
+          ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
           ExpressionAttributeValues: values,
           ReturnValues: 'ALL_NEW',
         }),
