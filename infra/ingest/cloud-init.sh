@@ -137,7 +137,7 @@ conf MaxClientsPerIP 8
 conf MinUID 1000
 conf CallUploadScript yes
 conf VerboseLog yes
-conf Umask "137:027"
+conf Umask "137 027"            # files 0640, dirs 0750; the Debian wrapper wants "fff ddd" and builds -U f:d itself
 conf DontResolve yes
 conf PureDB /etc/pure-ftpd/pureftpd.pdb
 ln -sf ../conf/PureDB /etc/pure-ftpd/auth/50pure
