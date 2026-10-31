@@ -166,7 +166,7 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
       const client = new LightroomClient(fetchFn, lightroom.clientId, conn.accessToken!);
       const account = await client.account();
       if (!['subscriber', 'trial'].includes(account.entitlement?.status)) {
-        return error(403, `Adobe account is not entitled to Lightroom (status: ${account.entitlement?.status ?? 'unknown'})`);
+        return error(403, `Adobe account is not entitled to Lightroom (status: ${account.entitlement?.status ?? 'unknown'}). Sign in with the Adobe account that has the Lightroom plan and has been added as a beta user, and open Lightroom (web or mobile) with it once first.`);
       }
       const catalog = await client.catalog();
       conn = {
