@@ -68,6 +68,7 @@ couple of minutes. Running it when nothing changed is harmless.
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
 | `receiver-logs` | health report from the instance over Session Manager: cloud-init result, pure-ftpd state and log, certificate in use, Picket log lines. First stop when the camera can't connect. |
+| `lightroom-debug` | the pick → Lightroom pipeline in one log: queue depths, every photo by Lightroom status, router and uploader CloudWatch events, a peek at the dead-letter queue. First stop when a pick sticks on Queued or Failed. |
 | `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
 | `reload-ftp-password` | force the receiver to re-read the camera password (the app does this itself after a change; this is the manual fallback) |
