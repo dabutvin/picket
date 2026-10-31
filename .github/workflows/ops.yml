@@ -65,9 +65,11 @@ jobs:
         id: outs
         run: |
           aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs' > outputs.json
-          out() { jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue' outputs.json; }
+          # Exact key first; else the key with CDK's hash suffix (e.g. LightroomUploadDlqUrlE37DE845 for UploadDlqUrl).
+          out() { jq -r --arg k "$1" 'map(select(.OutputKey==$k)) + map(select(.OutputKey|test("^(Lightroom)?"+$k+"[A-F0-9]{8}$"))) | .[0].OutputValue // empty' outputs.json; }
           for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl PairingSecret ApiDomainTarget FtpHost; do
-            echo "$k=$(out $k)" >> "$GITHUB_OUTPUT"
+            v="$(out $k)"; [ -n "$v" ] || echo "::warning::stack output $k not found"
+            echo "$k=$v" >> "$GITHUB_OUTPUT"
           done
 
       - name: Status
@@ -222,7 +224,7 @@ jobs:
           DLQ: ${{ steps.outs.outputs.UploadDlqUrl }}
           LG: ${{ steps.outs.outputs.UploaderLogGroup }}
         run: |
-          set -uo pipefail
+          set +e; set -uo pipefail   # GitHub runs bash -e; this report must keep going past a failing call
           since=$(( ($(date +%s) - 6*3600) * 1000 ))
           section() { printf '\n===== %s =====\n' "$1"; }
           {
