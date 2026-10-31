@@ -24,6 +24,21 @@ export interface Api {
   receiverPower(action: ReceiverPowerAction): Promise<ReceiverSettings>;
 }
 
+/** Exchange a one-time pairing code (from the deploy / ops summary) for the API token. No auth. */
+export async function pair(apiUrl: string, code: string): Promise<string> {
+  const res = await fetch(`${apiUrl}/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) });
+  if (!res.ok) {
+    let message = res.statusText || `HTTP ${res.status}`;
+    try {
+      message = ((await res.json()) as { error?: string }).error ?? message;
+    } catch {
+      /* keep statusText */
+    }
+    throw new ApiError(res.status, message);
+  }
+  return ((await res.json()) as { token: string }).token;
+}
+
 export function createApi({ apiUrl, token }: Settings): Api {
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(`${apiUrl}${path}`, {

@@ -3,6 +3,7 @@ import { AdobeError, IMS_AUTHORIZE_URL, IMS_TOKEN_URL, LightroomClient, refreshT
 import { ensureAccessToken, type ConnectionStore } from './connection.js';
 import { BadCursor, type Store } from './store.js';
 import { BadPassword, type createReceiverService } from './receiver.js';
+import { redeemPairingCode, type PairingStore } from './pairing.js';
 import {
   LIGHTROOM_STATUSES,
   PHOTO_STATUSES,
@@ -34,6 +35,7 @@ export interface AppDeps {
   connections: ConnectionStore;
   lightroom: LightroomConfig;
   receiver: ReturnType<typeof createReceiverService>;
+  pairing: PairingStore;
   fetchFn?: FetchFn;
 }
 
@@ -56,7 +58,7 @@ const parseBody = <T>(event: APIGatewayProxyEventV2): T | undefined => {
   }
 };
 
-export function createApp({ store, connections, lightroom, receiver, fetchFn = fetch }: AppDeps) {
+export function createApp({ store, connections, lightroom, receiver, pairing, fetchFn = fetch }: AppDeps) {
   async function withUrls(item: PhotoItem): Promise<Photo> {
     const [previewUrl, thumbUrl] = await Promise.all([
       store.signGet(item.previewKey, PREVIEW_URL_TTL),
@@ -233,9 +235,23 @@ export function createApp({ store, connections, lightroom, receiver, fetchFn = f
     return json(200, await receiver.power(body.action));
   }
 
+  /** The only unauthenticated route: swap a one-time pairing code for the bearer token. */
+  async function pair(event: APIGatewayProxyEventV2): Promise<Result> {
+    const body = parseBody<{ code?: unknown }>(event);
+    if (!body || typeof body.code !== 'string' || !body.code.trim()) return error(400, 'code is required');
+    const outcome = await redeemPairingCode(pairing, body.code);
+    if (!outcome.ok) {
+      const message = { invalid: 'That code is not valid', expired: 'That code has expired; run deploy or ops → pairing-code for a new one', used: 'That code was already used; run ops → pairing-code for a new one' }[outcome.reason];
+      return error(outcome.reason === 'invalid' ? 401 : 410, message);
+    }
+    return json(200, { token: outcome.token });
+  }
+
   return async function handle(event: APIGatewayProxyEventV2): Promise<Result> {
     try {
       switch (event.routeKey) {
+        case 'POST /pair':
+          return await pair(event);
         case 'GET /receiver':
           return await receiverGet();
         case 'POST /receiver/password':

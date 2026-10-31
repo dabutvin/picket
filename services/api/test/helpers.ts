@@ -5,6 +5,7 @@ import { BadCursor, type Store } from '../src/store.js';
 import type { LightroomConnection, LightroomStatus, PhotoItem, PhotoStatus } from '../src/types.js';
 import type { AppDeps } from '../src/app.js';
 import { createReceiverService, type ReceiverCloud, type ReceiverConfig } from '../src/receiver.js';
+import { createMemoryPairingStore } from '../src/pairing.js';
 
 export const item = (id: string, status: PhotoItem['status'] = 'unreviewed', extra: Partial<PhotoItem> = {}): PhotoItem => ({
   photoId: id,
@@ -73,6 +74,7 @@ export const deps = (over: Partial<AppDeps> = {}): AppDeps => ({
   connections: createMemoryConnectionStore(null),
   lightroom: { clientId: 'cid', scopes: ['openid'], redirectUri: 'adobe+x://adobeid/cid', albumName: 'Picket' },
   receiver: createReceiverService(receiverCfg, fakeCloud().cloud),
+  pairing: createMemoryPairingStore({ code: 'ABCD2345', expiresAt: new Date(Date.now() + 600_000).toISOString() }, 'the-token'),
   fetchFn: vi.fn(async () => new Response('{}', { status: 500 })) as unknown as typeof fetch,
   ...over,
 });

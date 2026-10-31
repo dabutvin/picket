@@ -6,10 +6,11 @@ summary page. Credentials live in the repository's Actions secrets.
 
 ## Where secrets live
 
-GitHub holds the credentials the workflows need (AWS, Expo, Apple) plus the one
-token the app needs to pair with the API. Camera settings are not secrets you
-manage anywhere: the app's **Camera** tab shows them, rotates the password and
-starts or stops the receiver. No workflow prints a secret value.
+GitHub holds the credentials the workflows need (AWS, Expo, Apple). The app
+pairs with the API through a one-time code that the deploy (or `ops →
+pairing-code`) prints; nobody ever sees or types the token itself. Camera
+settings are not secrets you manage anywhere: the app's **Camera** tab shows
+them, rotates the password and starts or stops the receiver.
 
 ### GitHub (Settings → Secrets and variables → Actions)
 
@@ -17,10 +18,10 @@ starts or stops the receiver. No workflow prints a secret value.
 |---|---|---|
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret | An IAM user's access key. Simplest: IAM → Users → Create user → attach `AdministratorAccess` → Create access key. |
 | `AWS_DEPLOY_ROLE_ARN` | secret, optional | Instead of keys: an IAM role trusting GitHub's OIDC provider for `repo:dabutvin/picket:*`. |
-| `PICKET_API_TOKEN` | secret | Any long random string. `deploy` installs it as the API's bearer token; you paste the same value into the app's Settings once. |
 | `EXPO_TOKEN` | secret | expo.dev → account → Access tokens. |
 | `APPLE_TEAM_ID` | secret | developer.apple.com → Membership details (10 characters). |
 | `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | secret | An App Store Connect **Team** API key with the **Admin** role: App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → Generate. Paste the whole `.p8` file contents into `ASC_API_KEY_P8` (raw, `\n`-escaped or base64 all work); the Key ID is on that row, the Issuer ID at the top of the page. |
+| `NETLIFY_AUTH_TOKEN` | secret | Netlify → User settings → Applications → Personal access tokens. Lets `deploy` and `ops → dns` manage the DNS records for the domain. Without it the summary lists the records to add by hand. |
 | `AWS_REGION` | variable, optional | Defaults to `us-east-1`. |
 | `DOMAIN_NAME` | variable, optional | Defaults to `picket.photos`. |
 
@@ -30,27 +31,31 @@ Host name, port, user and password for the camera's FTP menu, each tappable to
 copy. **Set** or **Generate** a new password (letters and digits, 8 to 64; the
 receiver switches within seconds). **Start** / **Stop** the receiver instance.
 
+### Pairing the app
+
+Settings → API URL (the `ApiUrl` from the deploy summary) → the 8-character
+pairing code from the same summary → **Pair**. The code works once and expires
+after 30 minutes; `ops → pairing-code` issues a fresh one any time (new phone,
+reinstall). Behind it, `POST /pair` is the API's only unauthenticated route and
+hands back the bearer token, which the app keeps in SecureStore.
+
 ### Internal state in AWS (nothing to do)
 
 `picket/apple-signing` (iOS key, certificate and profile written by the build
 workflow), the camera password secret (edited through the app), the API token
-secret (set by `deploy` from `PICKET_API_TOKEN`), and the Lightroom OAuth
-tokens (written by Connect Lightroom in the app).
+and pairing-code secrets, and the Lightroom OAuth tokens (written by Connect
+Lightroom in the app).
 
 ## Workflows
 
 ### `deploy`
 
-`deploy` (default) finds (or creates) the Route 53 hosted zone for the domain,
-points the registrar at it when the domain is registered with Route 53 in the
-same account, bootstraps the CDK environment if needed, deploys the stack, and
-writes a summary table with `ApiUrl`, `FtpHost`, `FtpUser` and friends plus the
-names of the secrets to read. `diff` shows what a deploy would change without
-changing anything.
-
-While the domain is not yet delegated to the zone (registrar still pointing
-elsewhere), the API keeps its default `execute-api` URL; run `deploy` again
-once DNS has propagated and `api.picket.photos` is added.
+`deploy` (default) bootstraps the CDK environment if needed, deploys the stack,
+issues a pairing code, and writes a summary with `ApiUrl`, `FtpHost`, `FtpUser`,
+the pairing code, and the DNS records to add (see **Domain** below). `diff`
+shows what a deploy would change without changing anything. Re-running it when
+nothing changed is harmless and is how you pick up the API's custom domain once
+its certificate is issued.
 
 First deploy takes about 10 minutes (the receiver needs ~3 more to install
 pure-ftpd after the stack reports done). Re-deploys after a code change are a
@@ -61,6 +66,8 @@ couple of minutes. Running it when nothing changed is harmless.
 | action | what it does |
 |---|---|
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
+| `pairing-code` | a fresh one-time code for the app's Settings screen |
+| `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
 | `reload-ftp-password` | force the receiver to re-read the camera password (the app does this itself after a change; this is the manual fallback) |
 | `redrive-dlq` | put picks that failed six times back on the upload queue (after you fixed the cause, e.g. reconnected Lightroom or freed storage) |
@@ -88,15 +95,15 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
 
 ## One-time setup checklist (phone only)
 
-1. **GitHub secrets**: AWS keys (or role), `PICKET_API_TOKEN`, `EXPO_TOKEN`,
-   `APPLE_TEAM_ID`, the three `ASC_*` values. Run `deploy`; read `ApiUrl`
-   from the summary.
+1. **GitHub secrets**: AWS keys (or role), `EXPO_TOKEN`, `APPLE_TEAM_ID`, the
+   three `ASC_*` values. Run `deploy`; the summary has `ApiUrl`, the pairing
+   code, and the DNS records for Netlify.
 2. **Adobe**: done. The Native App credential's client id, redirect URI and
    scopes are the defaults in `infra/bin/picket.ts`.
 3. **Phone enrollment**: `app-build → register-device`, follow the summary.
 4. **Build**: `app-build → build` (ios, preview). Open the build link on the
    phone and tap Install.
-5. **App**: Settings → `ApiUrl` + your `PICKET_API_TOKEN` → Connect Lightroom.
+5. **App**: Settings → `ApiUrl` + pairing code → Pair → Connect Lightroom.
 6. **Camera**: the app's Camera tab has every value for
    `docs/CAMERA_SETUP.md`: Host Name `ftp.picket.photos`, user, password
    (set one that's easy to type), Secure Protocol on, Passive on. Try *Root
@@ -104,20 +111,28 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
    Let's Encrypt chain, use *Connect* (TLS still encrypts, the camera just
    skips verifying the server).
 
-## Domain: picket.photos
+## Domain: picket.photos (DNS at Netlify)
 
-The stack uses one Route 53 hosted zone for the domain:
+The domain is registered through Netlify, whose registered domains can't be
+pointed at other name servers, so DNS records live in Netlify DNS. With the
+`NETLIFY_AUTH_TOKEN` secret set, `deploy` creates and updates them itself,
+waits for the API certificate to validate, and attaches `api.picket.photos`
+in the same run. Without the token, the summary tells you exactly what to add
+in Netlify → Domains → picket.photos → DNS settings:
 
-- `ftp.picket.photos` → the receiver's Elastic IP. The receiver starts with a
-  self-signed certificate and swaps in a Let's Encrypt one as soon as the name
-  resolves publicly (a timer retries every 15 minutes; certbot renews it).
-- `api.picket.photos` → the HTTP API, with an ACM certificate. Only created
-  once the domain is delegated to the zone, because certificate validation
-  would otherwise stall the deploy.
+| record | points at | purpose |
+|---|---|---|
+| `ftp` A | the receiver's Elastic IP | the camera's host. The receiver starts self-signed and swaps in a Let's Encrypt certificate within ~15 minutes of this record resolving; certbot renews it. |
+| validation CNAME (name and value printed in the summary) | AWS | proves ownership of `api.picket.photos` so AWS issues its certificate |
+| `api` CNAME | the `ApiDomainTarget` output | the app's API at https://api.picket.photos |
 
-If the domain was registered with Route 53 in the same AWS account, `deploy`
-points it at the zone automatically. If it was registered elsewhere, the deploy
-summary lists the four name servers to enter at the registrar.
+Manual sequence (no token): first `deploy` prints the `ftp` A record and the
+validation CNAME. Add both. Within ~30 minutes AWS issues the certificate; run
+`deploy` again and the summary prints the `api` CNAME. Add it. The default
+`execute-api` URL works the whole time, so none of this blocks using the app.
+
+If a Route 53 hosted zone for the domain ever exists in the account, `deploy`
+switches to Route 53 mode automatically and manages the records itself.
 
 ## How the iOS signing works without a computer
 
@@ -155,8 +170,8 @@ Known limits:
   means set `LIGHTROOM_RAW_CONTENT_TYPE=application/octet-stream` as a
   repository variable, then `deploy`. Then `redrive-dlq`.
 - **Change the camera password**: app → Camera → Set or Generate, then update
-  the camera. **Change the API token**: change the `PICKET_API_TOKEN` secret,
-  run `deploy`, update the app's Settings.
+  the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
+  Settings.
 - **New iPhone**: `app-build → register-device`, enroll, approve, then
   `app-build → build`. The profile is recreated with the new device list.
 - **iOS build fails on signing**: the `iOS signing` step's summary shows which

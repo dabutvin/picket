@@ -62,33 +62,62 @@ jobs:
       - run: npm ci
         working-directory: infra
 
-      - name: Resolve DNS zone for ${{ env.DOMAIN_NAME }}
+      - name: Resolve DNS for ${{ env.DOMAIN_NAME }}
         id: dns
         run: |
           set -euo pipefail
-          zone_id="$(aws route53 list-hosted-zones-by-name --dns-name "$DOMAIN_NAME." --max-items 1 \
-            --query "HostedZones[?Name=='${DOMAIN_NAME}.'] | [0].Id" --output text 2>/dev/null | sed 's|/hostedzone/||')"
-          if [ -z "$zone_id" ] || [ "$zone_id" = "None" ]; then
-            echo "No Route 53 hosted zone for $DOMAIN_NAME; creating one"
-            zone_id="$(aws route53 create-hosted-zone --name "$DOMAIN_NAME" --caller-reference "picket-$(date +%s)" \
-              --hosted-zone-config Comment="Picket" --query HostedZone.Id --output text | sed 's|/hostedzone/||')"
+          # Two modes. Route 53: a hosted zone for the domain exists in this account (we never create one).
+          # External (Netlify, ...): no zone; records are added by hand from the summary, and the API
+          # certificate is requested here so its validation record can be shown without blocking the deploy.
+          mode=external; zone_id=""; delegated=false; zone_ns=""; cert_arn=""; cert_status="none"; cert_cname_name=""; cert_cname_value=""
+          if zones="$(aws route53 list-hosted-zones-by-name --dns-name "$DOMAIN_NAME." --max-items 1 \
+                --query "HostedZones[?Name=='${DOMAIN_NAME}.'].Id" --output text 2>&1)"; then
+            zid="$(printf '%s' "$zones" | sed 's|/hostedzone/||' | tr -d '[:space:]')"
+            if [ -n "$zid" ] && [ "$zid" != "None" ]; then
+              mode=route53; zone_id="$zid"
+              zone_ns="$(aws route53 get-hosted-zone --id "$zone_id" --query 'DelegationSet.NameServers' --output text | tr '\t' '\n' | sed 's/\.$//' | sort)"
+              public_ns="$(dig +short NS "$DOMAIN_NAME" @1.1.1.1 2>/dev/null | sed 's/\.$//' | sort || true)"
+              [ -n "$public_ns" ] && [ "$public_ns" = "$zone_ns" ] && delegated=true
+            fi
+          else
+            echo "::notice::Could not list Route 53 zones (${zones}); using external DNS mode"
           fi
-          zone_ns="$(aws route53 get-hosted-zone --id "$zone_id" --query 'DelegationSet.NameServers' --output text | tr '\t' '\n' | sed 's/\.$//' | sort)"
-          # If the domain is registered with Route 53 Domains in this account, point it at the zone (idempotent).
-          if aws route53domains get-domain-detail --region us-east-1 --domain-name "$DOMAIN_NAME" >/dev/null 2>&1; then
-            current_ns="$(aws route53domains get-domain-detail --region us-east-1 --domain-name "$DOMAIN_NAME" --query 'Nameservers[].Name' --output text | tr '\t' '\n' | sed 's/\.$//' | sort)"
-            if [ "$current_ns" != "$zone_ns" ]; then
-              echo "Updating registrar name servers to the hosted zone"
-              args=(); for ns in $zone_ns; do args+=("Name=$ns"); done
-              aws route53domains update-domain-nameservers --region us-east-1 --domain-name "$DOMAIN_NAME" --nameservers "${args[@]}" >/dev/null
+          if [ "$mode" = external ]; then
+            arn="$(aws acm list-certificates --certificate-statuses PENDING_VALIDATION ISSUED \
+              --query "CertificateSummaryList[?DomainName=='api.${DOMAIN_NAME}'].CertificateArn | [0]" --output text 2>/dev/null || echo None)"
+            if [ -z "$arn" ] || [ "$arn" = "None" ]; then
+              echo "Requesting an ACM certificate for api.$DOMAIN_NAME"
+              if ! arn="$(aws acm request-certificate --domain-name "api.$DOMAIN_NAME" --validation-method DNS --idempotency-token picketapi --query CertificateArn --output text 2>&1)"; then
+                echo "::warning::Could not request the API certificate (${arn}); continuing without a custom API domain"; arn=""
+              else
+                sleep 10  # the validation record appears a few seconds after the request
+              fi
+            fi
+            if [ -n "$arn" ]; then
+              desc="$(aws acm describe-certificate --certificate-arn "$arn")"
+              cert_status="$(printf '%s' "$desc" | jq -r .Certificate.Status)"
+              cert_cname_name="$(printf '%s' "$desc" | jq -r '.Certificate.DomainValidationOptions[0].ResourceRecord.Name // ""')"
+              cert_cname_value="$(printf '%s' "$desc" | jq -r '.Certificate.DomainValidationOptions[0].ResourceRecord.Value // ""')"
+              [ "$cert_status" = "ISSUED" ] && cert_arn="$arn"
             fi
           fi
-          public_ns="$(dig +short NS "$DOMAIN_NAME" @1.1.1.1 | sed 's/\.$//' | sort || true)"
-          delegated=false; [ -n "$public_ns" ] && [ "$public_ns" = "$zone_ns" ] && delegated=true
-          echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
-          echo "delegated=$delegated" >> "$GITHUB_OUTPUT"
-          printf 'ns<<EOF\n%s\nEOF\n' "$zone_ns" >> "$GITHUB_OUTPUT"
-          echo "zone=$zone_id delegated=$delegated"
+          {
+            echo "mode=$mode"; echo "zone_id=$zone_id"; echo "delegated=$delegated"
+            echo "cert_arn=$cert_arn"; echo "cert_status=$cert_status"
+            echo "cert_cname_name=$cert_cname_name"; echo "cert_cname_value=$cert_cname_value"
+            printf 'ns<<EOF\n%s\nEOF\n' "$zone_ns"
+          } >> "$GITHUB_OUTPUT"
+          echo "mode=$mode zone=$zone_id delegated=$delegated cert=$cert_status"
+
+      - name: CDK context
+        id: ctx
+        run: |
+          if [ "${{ steps.dns.outputs.mode }}" = "route53" ]; then
+            echo "args=-c domainName=$DOMAIN_NAME -c hostedZoneId=${{ steps.dns.outputs.zone_id }} -c dnsDelegated=${{ steps.dns.outputs.delegated }}" >> "$GITHUB_OUTPUT"
+          else
+            arn="${{ steps.dns.outputs.cert_arn }}"
+            echo "args=-c domainName=$DOMAIN_NAME${arn:+ -c apiCertificateArn=$arn}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Bootstrap CDK (idempotent)
         if: inputs.action == 'deploy'
@@ -98,28 +127,74 @@ jobs:
       - name: cdk diff
         if: inputs.action == 'diff'
         working-directory: infra
-        run: npx cdk diff -c domainName="$DOMAIN_NAME" -c hostedZoneId="${{ steps.dns.outputs.zone_id }}" -c dnsDelegated="${{ steps.dns.outputs.delegated }}" 2>&1 | tee "$GITHUB_STEP_SUMMARY"
+        run: npx cdk diff ${{ steps.ctx.outputs.args }} 2>&1 | tee "$GITHUB_STEP_SUMMARY"
 
       - name: cdk deploy
         if: inputs.action == 'deploy'
         working-directory: infra
-        run: npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c hostedZoneId="${{ steps.dns.outputs.zone_id }}" -c dnsDelegated="${{ steps.dns.outputs.delegated }}"
+        run: npx cdk deploy --require-approval never --outputs-file outputs.json ${{ steps.ctx.outputs.args }}
 
-      - name: Apply the app token
-        if: inputs.action == 'deploy'
+      - name: Netlify DNS (external mode)
+        if: inputs.action == 'deploy' && steps.dns.outputs.mode == 'external'
+        id: netlify
         env:
-          API_TOKEN: ${{ secrets.PICKET_API_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
           set -euo pipefail
           out() { jq -r ".${STACK}.$1" infra/outputs.json; }
-          if [ -z "$API_TOKEN" ]; then
-            echo "::warning::PICKET_API_TOKEN is not set. The API keeps an AWS-generated token the app can't know; add the secret (any long random string) and run deploy again to pair the app."
-            echo "token_state=missing" >> "$GITHUB_ENV"
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "managed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NETLIFY_AUTH_TOKEN not set; the summary lists the DNS records to add by hand"
             exit 0
           fi
-          cur="$(aws secretsmanager get-secret-value --secret-id "$(out ApiTokenSecret)" --query SecretString --output text)"
-          [ "$cur" = "$API_TOKEN" ] || aws secretsmanager put-secret-value --secret-id "$(out ApiTokenSecret)" --secret-string "$API_TOKEN" >/dev/null
-          echo "token_state=set" >> "$GITHUB_ENV"
+          dns=infra/scripts/netlify-dns.sh
+          {
+            echo "## Netlify DNS"
+            echo '```'
+            $dns upsert "$DOMAIN_NAME" A "ftp.$DOMAIN_NAME" "$(out ReceiverIp)" 300
+            cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
+            [ -z "$cn" ] || $dns upsert "$DOMAIN_NAME" CNAME "$cn" "$cv" 300
+            echo '```'
+          } > netlify-summary.md
+          cat netlify-summary.md
+
+          # Wait for the API certificate to validate, then attach the custom domain in this same run.
+          arn="${{ steps.dns.outputs.cert_arn }}"
+          if [ -z "$arn" ] && [ -n "$cn" ]; then
+            cand="$(aws acm list-certificates --certificate-statuses PENDING_VALIDATION ISSUED \
+              --query "CertificateSummaryList[?DomainName=='api.${DOMAIN_NAME}'].CertificateArn | [0]" --output text)"
+            for i in $(seq 1 24); do
+              st="$(aws acm describe-certificate --certificate-arn "$cand" --query Certificate.Status --output text)"
+              echo "certificate: $st"
+              [ "$st" = "ISSUED" ] && { arn="$cand"; break; }
+              sleep 30
+            done
+          fi
+          if [ -n "$arn" ] && [ "$(out ApiDomainTarget)" = "(no custom domain yet)" ]; then
+            echo "Attaching api.$DOMAIN_NAME"
+            (cd infra && npx cdk deploy --require-approval never --outputs-file outputs.json -c domainName="$DOMAIN_NAME" -c apiCertificateArn="$arn")
+          fi
+          tgt="$(out ApiDomainTarget)"
+          if [ "$tgt" != "(no custom domain yet)" ]; then
+            { echo '```'; $dns upsert "$DOMAIN_NAME" CNAME "api.$DOMAIN_NAME" "$tgt" 300; echo '```'; } >> netlify-summary.md
+            echo "api_attached=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The API certificate is still validating; run deploy again later to attach api.$DOMAIN_NAME (the default URL works meanwhile)." >> netlify-summary.md
+            echo "api_attached=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "managed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Issue an app pairing code
+        if: inputs.action == 'deploy'
+        run: |
+          set -euo pipefail
+          out() { jq -r ".${STACK}.$1" infra/outputs.json; }
+          raw="$(tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c 8)"
+          code="${raw:0:4}-${raw:4:4}"
+          expires="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          aws secretsmanager put-secret-value --secret-id "$(out PairingSecret)" --secret-string "{\"code\":\"$code\",\"expiresAt\":\"$expires\"}" >/dev/null
+          echo "PAIRING_CODE=$code" >> "$GITHUB_ENV"
+          echo "PAIRING_EXPIRES=$expires" >> "$GITHUB_ENV"
 
       - name: Summary
         if: inputs.action == 'deploy'
@@ -130,22 +205,41 @@ jobs:
             echo
             echo "| output | value |"
             echo "|---|---|"
-            for k in ApiUrl FtpHost ReceiverIp FtpUser Domain LightroomClientId LightroomRedirectUri Bucket Table ReceiverInstanceId UploaderLogGroup UploadQueueUrl UploadDlqUrl; do
+            for k in ApiUrl FtpHost ReceiverIp FtpUser Domain ApiDomainTarget LightroomClientId Bucket Table ReceiverInstanceId UploaderLogGroup UploadDlqUrl; do
               v="$(out $k)"; [ "$v" = "null" ] || echo "| \`$k\` | \`$v\` |"
             done
             echo
-            if [ "${token_state:-missing}" = "set" ]; then
-              echo "- App: Settings → API URL = \`$(out ApiUrl)\`, Token = your \`PICKET_API_TOKEN\` secret → Connect Lightroom."
-            else
-              echo "- **Add the \`PICKET_API_TOKEN\` repository secret (any long random string) and run deploy again**; then the app pairs with API URL = \`$(out ApiUrl)\` and that token."
-            fi
-            echo "- Camera: the app's **Camera** tab shows host, user and password with copy buttons, rotates the password, and starts/stops the receiver."
+            echo "## Pair the app"
             echo
-            if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
-              echo "DNS: \`$DOMAIN_NAME\` is delegated to the hosted zone; the receiver obtains a Let's Encrypt certificate for \`ftp.$DOMAIN_NAME\` within ~15 minutes."
+            echo "Settings → API URL \`$(out ApiUrl)\` → pairing code **$PAIRING_CODE** (valid until $PAIRING_EXPIRES UTC, one use). Need another later: ops → pairing-code."
+            echo
+            if [ "${{ steps.netlify.outputs.managed }}" = "true" ]; then
+              cat netlify-summary.md
+              echo
+              echo "DNS records are managed on Netlify by this workflow. The receiver fetches its Let's Encrypt certificate within ~15 minutes of \`ftp.$DOMAIN_NAME\` resolving."
             else
-              echo "DNS: \`$DOMAIN_NAME\` is **not yet delegated** to the hosted zone. If the domain is registered outside Route 53, set these name servers at the registrar, wait for propagation, then run deploy again to enable \`api.$DOMAIN_NAME\`:"
-              echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
+              echo "## DNS"
+              echo
+              if [ "${{ steps.dns.outputs.mode }}" = "route53" ]; then
+                if [ "${{ steps.dns.outputs.delegated }}" = "true" ]; then
+                  echo "\`$DOMAIN_NAME\` is delegated to the Route 53 zone; records are managed by the stack."
+                else
+                  echo "\`$DOMAIN_NAME\` is not yet delegated to the Route 53 zone. Set these name servers at the registrar, then run deploy again:"
+                  echo '```'; echo "${{ steps.dns.outputs.ns }}"; echo '```'
+                fi
+              else
+                echo "DNS for \`$DOMAIN_NAME\` is external (Netlify). Add the \`NETLIFY_AUTH_TOKEN\` secret to let this workflow manage the records, or add them in Netlify → Domains → \`$DOMAIN_NAME\` → DNS settings:"
+                echo
+                echo "| type | name | value | why |"
+                echo "|---|---|---|---|"
+                echo "| A | \`ftp\` | \`$(out ReceiverIp)\` | the camera's FTPS host; the receiver fetches a Let's Encrypt certificate once this resolves |"
+                cn="${{ steps.dns.outputs.cert_cname_name }}"; cv="${{ steps.dns.outputs.cert_cname_value }}"
+                if [ -n "$cn" ]; then echo "| CNAME | \`${cn%.}\` | \`${cv%.}\` | proves to AWS that you own \`api.$DOMAIN_NAME\` (certificate status: ${{ steps.dns.outputs.cert_status }}) |"; fi
+                tgt="$(out ApiDomainTarget)"
+                if [ "$tgt" != "(no custom domain yet)" ]; then
+                  echo "| CNAME | \`api\` | \`$tgt\` | the app's API at https://api.$DOMAIN_NAME |"
+                fi
+              fi
             fi
             echo
             echo "The receiver needs ~3 minutes after a fresh deploy to finish installing pure-ftpd."

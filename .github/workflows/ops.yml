@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action
         required: false
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy'
+        if: inputs.action == 'destroy' || inputs.action == 'dns'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
@@ -66,7 +66,7 @@ jobs:
         run: |
           aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs' > outputs.json
           out() { jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue' outputs.json; }
-          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl; do
+          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl PairingSecret ApiDomainTarget FtpHost; do
             echo "$k=$(out $k)" >> "$GITHUB_OUTPUT"
           done
 
@@ -97,6 +97,43 @@ jobs:
             for s in queued uploading done duplicate failed; do echo "| $s | $(count byLightroomStatus lightroomStatus $s) |"; done
             echo
             echo "Upload queue: $qd waiting · dead-letter: $dd"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Issue an app pairing code
+        if: inputs.action == 'pairing-code'
+        env:
+          SECRET: ${{ steps.outs.outputs.PairingSecret }}
+        run: |
+          set -euo pipefail
+          raw="$(tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c 8)"
+          code="${raw:0:4}-${raw:4:4}"
+          expires="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          aws secretsmanager put-secret-value --secret-id "$SECRET" --secret-string "{\"code\":\"$code\",\"expiresAt\":\"$expires\"}" >/dev/null
+          {
+            echo "## Pair the app"
+            echo
+            echo "Settings → API URL \`${{ steps.outs.outputs.ApiUrl }}\` → pairing code **$code** (valid until $expires UTC, one use)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Netlify DNS records
+        if: inputs.action == 'dns'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME || 'picket.photos' }}
+        run: |
+          set -euo pipefail
+          [ -n "$NETLIFY_AUTH_TOKEN" ] || { echo "::error::Set the NETLIFY_AUTH_TOKEN secret (Netlify → User settings → Applications → Personal access tokens)"; exit 1; }
+          dns=infra/scripts/netlify-dns.sh
+          {
+            echo "## Netlify DNS for $DOMAIN_NAME"
+            echo '```'
+            $dns upsert "$DOMAIN_NAME" A "ftp.$DOMAIN_NAME" "${{ steps.outs.outputs.ReceiverIp }}" 300
+            tgt="${{ steps.outs.outputs.ApiDomainTarget }}"
+            [ "$tgt" = "(no custom domain yet)" ] || $dns upsert "$DOMAIN_NAME" CNAME "api.$DOMAIN_NAME" "$tgt" 300
+            echo '```'
+            echo
+            echo "All records in the zone:"
+            echo '```'; $dns list "$DOMAIN_NAME"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Receiver start/stop

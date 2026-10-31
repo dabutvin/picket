@@ -3,6 +3,7 @@ import { createSecretsConnectionStore } from './connection.js';
 import { env, lightroomConfigFromEnv } from './config.js';
 import { createStore } from './store.js';
 import { createReceiverCloud, createReceiverService } from './receiver.js';
+import { createPairingStore } from './pairing.js';
 
 export const handler = createApp({
   store: createStore({
@@ -13,6 +14,7 @@ export const handler = createApp({
   }),
   connections: createSecretsConnectionStore(env('LIGHTROOM_SECRET_ARN')),
   lightroom: lightroomConfigFromEnv(),
+  pairing: createPairingStore(env('PAIRING_SECRET_ARN'), env('TOKEN_SECRET_ARN')),
   receiver: (() => {
     const cfg = {
       host: env('RECEIVER_HOST'),

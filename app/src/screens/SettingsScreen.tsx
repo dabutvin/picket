@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../lib/theme';
 import { saveSettings, clearSettings, type Settings } from '../lib/settings';
-import { createApi, type Api } from '../lib/api';
+import { createApi, pair, type Api } from '../lib/api';
 import type { LightroomStatusView } from '../lib/types';
 import { loginToAdobe } from '../lib/adobeAuth';
 import { Button } from '../components/Button';
@@ -17,7 +17,7 @@ const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
 export function SettingsScreen({ initial, api, onSaved }: Props) {
   const [apiUrl, setApiUrl] = useState(initial?.apiUrl ?? '');
-  const [token, setToken] = useState(initial?.token ?? '');
+  const [code, setCode] = useState('');
   const [testing, setTesting] = useState(false);
   const [lr, setLr] = useState<LightroomStatusView | null>(null);
   const [lrBusy, setLrBusy] = useState(false);
@@ -28,18 +28,26 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
   }, [api]);
 
   const save = async () => {
-    const s = { apiUrl: apiUrl.trim().replace(/\/+$/, ''), token: token.trim() };
-    if (!/^https:\/\//.test(s.apiUrl) || !s.token) {
-      Alert.alert('Check the values', 'The API URL must start with https:// and the token cannot be empty.');
+    const url = apiUrl.trim().replace(/\/+$/, '');
+    if (!/^https:\/\//.test(url)) {
+      Alert.alert('Check the API URL', 'It must start with https:// (the ApiUrl value from the deploy summary).');
+      return;
+    }
+    const trimmed = code.trim();
+    if (!trimmed && !initial?.token) {
+      Alert.alert('Pairing code needed', 'Run the deploy or ops → pairing-code workflow and type the code it shows.');
       return;
     }
     setTesting(true);
     try {
+      const token = trimmed ? await pair(url, trimmed) : initial!.token;
+      const s = { apiUrl: url, token };
       await createApi(s).list('unreviewed', 1);
       await saveSettings(s);
+      setCode('');
       onSaved(s);
     } catch (e) {
-      Alert.alert('Could not reach the API', e instanceof Error ? e.message : String(e));
+      Alert.alert('Could not pair', e instanceof Error ? e.message : String(e));
     } finally {
       setTesting(false);
     }
@@ -83,8 +91,8 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
 
       <Text style={styles.section}>Picket API</Text>
       <Text style={styles.help}>
-        Both values come from the CDK outputs: <Text style={styles.code}>ApiUrl</Text> and the value of the{' '}
-        <Text style={styles.code}>ApiTokenSecret</Text> secret.
+        The deploy workflow's summary shows the <Text style={styles.code}>ApiUrl</Text> and a one-time pairing code.
+        {initial ? ' Paired. Enter a new code only to re-pair.' : ''}
       </Text>
       <Text style={styles.label}>API URL</Text>
       <TextInput
@@ -97,18 +105,17 @@ export function SettingsScreen({ initial, api, onSaved }: Props) {
         placeholderTextColor={colors.muted}
         style={styles.input}
       />
-      <Text style={styles.label}>Token</Text>
+      <Text style={styles.label}>Pairing code</Text>
       <TextInput
-        value={token}
-        onChangeText={setToken}
-        autoCapitalize="none"
+        value={code}
+        onChangeText={setCode}
+        autoCapitalize="characters"
         autoCorrect={false}
-        secureTextEntry
-        placeholder="paste the bearer token"
+        placeholder="XXXX-XXXX"
         placeholderTextColor={colors.muted}
-        style={styles.input}
+        style={[styles.input, styles.mono]}
       />
-      <Button title={testing ? 'Checking…' : 'Save'} onPress={() => void save()} disabled={testing} />
+      <Button title={testing ? 'Pairing…' : initial ? 'Save' : 'Pair'} onPress={() => void save()} disabled={testing} />
 
       {api && (
         <>
@@ -170,6 +177,7 @@ const styles = StyleSheet.create({
   help: { color: colors.muted, lineHeight: 20 },
   fine: { color: colors.muted, fontSize: 11 },
   code: { color: colors.text, fontFamily: 'Menlo' },
+  mono: { fontFamily: 'Menlo', letterSpacing: 2 },
   label: { color: colors.muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 },
   input: {
     color: colors.text,

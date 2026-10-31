@@ -44,8 +44,9 @@ required, passive mode on a fixed port range, and an Elastic IP. pure-ftpd's
 See `docs/DECISIONS.md` ADR-001 for why this beats AWS Transfer Family here.
 
 In the field the camera joins the phone's personal hotspot (or any Wi‑Fi) and
-pushes to `ftp.picket.photos` (an A record on the Elastic IP; the receiver
-holds a Let's Encrypt certificate for it, self-signed until DNS is live). If the connection drops, the camera queues
+pushes to `ftp.picket.photos` (an A record on the Elastic IP, added at Netlify
+where the domain's DNS lives; the receiver holds a Let's Encrypt certificate for
+it, self-signed until DNS is live). If the connection drops, the camera queues
 and resumes when it reconnects (Sony documents this behaviour).
 
 ### 2. Processing
@@ -138,8 +139,9 @@ router.
 ## API
 
 HTTP API (API Gateway v2) in front of one Lambda (`services/api`). Every
-request carries `Authorization: Bearer <token>`; the token lives in Secrets
-Manager and is checked by a Lambda authorizer. Single user for now.
+request except `POST /pair` carries `Authorization: Bearer <token>`; the token
+lives in Secrets Manager and is checked by a Lambda authorizer. The app obtains
+it once by redeeming a short-lived, single-use pairing code. Single user.
 
 | method | path                        | body / query                        | returns |
 |--------|-----------------------------|-------------------------------------|---------|
@@ -151,14 +153,16 @@ Manager and is checked by a Lambda authorizer. Single user for now.
 | POST   | `/lightroom`                | `{ refreshToken, accessToken?, expiresIn? }` from the PKCE flow | verifies with Adobe, stores tokens, returns the view |
 | POST   | `/lightroom/refresh`        |                                     | re-reads account/storage from Adobe |
 | DELETE | `/lightroom`                |                                     | forgets the tokens |
+| POST   | `/pair`                     | `{ code }` (no bearer token)        | exchanges a one-time pairing code written by the deploy/ops workflow for the bearer token |
 | GET    | `/receiver`                 |                                     | camera settings: host, port, user, password, passive ports, receiver instance state |
 | POST   | `/receiver/password`        | `{ password? }` (8–64 letters/digits; generated if omitted) | stores it, reloads the receiver over SSM, returns settings |
 | POST   | `/receiver/power`           | `{ action: "start" \| "stop" }`    | starts/stops the receiver instance |
 
 Tokens never come back out of the API, and there is no route that presigns a
 RAW: the API role can only read `previews/` and `thumbs/`. The API is served at
-`https://api.picket.photos` once the domain is delegated (ACM certificate, API
-Gateway custom domain), and at the default `execute-api` URL before that.
+`https://api.picket.photos` once its ACM certificate is validated through a
+CNAME at Netlify (API Gateway custom domain), and at the default `execute-api`
+URL before that.
 
 ## Repo layout
 
@@ -178,7 +182,6 @@ app/             Expo app (swipe review, picks, skipped, camera settings, connec
 | t4g.nano receiver, on 24/7             | ~$3    |
 | public IPv4 (Elastic IP)               | ~$3.65 |
 | 8 GB gp3 root volume                   | ~$0.65 |
-| Route 53 hosted zone for picket.photos | $0.50  |
 | S3 standard, 50 GB of RAW              | ~$1.15 |
 | Lambda, DynamoDB, SQS, API Gateway at hobby volume | <$1 |
 | Secrets Manager, 3 secrets                | ~$1.20 |
