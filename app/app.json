@@ -10,7 +10,10 @@
     "backgroundColor": "#0b0b0d",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.danbut.picket"
+      "bundleIdentifier": "com.danbut.picket",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.danbut.picket",

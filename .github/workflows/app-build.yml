@@ -148,11 +148,32 @@ jobs:
             echo '```json'; cat signing.json; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # production + ios: EAS submits the finished build to TestFlight by itself (eas build --auto-submit).
+      # Non-interactive submission needs the App Store Connect app's numeric id and the API key as a file
+      # in the submit profile; both are filled in here, never committed. The app record itself is created
+      # once by hand in App Store Connect (Apple's API cannot create it).
+      - name: TestFlight submit profile
+        if: inputs.action == 'build' && inputs.profile == 'production' && inputs.platform == 'ios'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          app_id="$(node scripts/apple-signing.mjs app-id)"
+          node scripts/apple-signing.mjs write-p8 asc.p8
+          jq --arg id "$ASC_KEY_ID" --arg iss "$ASC_ISSUER_ID" --arg team "$APPLE_TEAM_ID" --arg app "$app_id" \
+            '.submit.production.ios = {ascApiKeyPath: "./asc.p8", ascApiKeyId: $id, ascApiKeyIssuerId: $iss, appleTeamId: $team, ascAppId: $app}' \
+            eas.json > eas.json.tmp && mv eas.json.tmp eas.json
+          echo "App Store Connect app id: $app_id" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Start EAS build
         if: inputs.action == 'build'
         run: |
           set -euo pipefail
-          eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json > build.json
+          submit=""
+          if [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ]; then submit="--auto-submit"; fi
+          eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json $submit > build.json
           {
             echo "## EAS build started (${{ inputs.platform }} / ${{ inputs.profile }})"
             echo
@@ -164,5 +185,9 @@ jobs:
               }
             '
             echo
-            echo "Open the link on your phone. When the build finishes: **Install** (preview) or wait for TestFlight (production)."
+            if [ -n "$submit" ]; then
+              echo "EAS submits this build to TestFlight when it finishes (about 15 minutes to build, then about 10 minutes of Apple processing). Testers install it from the TestFlight app; manage them in App Store Connect → Picket → TestFlight → Internal Testing."
+            else
+              echo "Open the link on your phone. When the build finishes, tap **Install**."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

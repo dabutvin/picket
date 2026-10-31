@@ -83,7 +83,7 @@ Three actions, all without a computer or an Apple ID login:
 |---|---|
 | `register-device` | starts an EAS workflow that pauses with a link. Open it on your iPhone, install the profile it offers, then approve the device on the run page. That's how EAS learns the phone's UDID. |
 | `devices` | lists the iPhones registered on EAS for your Apple team |
-| `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` makes an App Store profile instead, for TestFlight. Android needs none of this. |
+| `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` (ios) makes an App Store profile instead and hands the finished build to TestFlight automatically; see **TestFlight** below. Android needs none of this. |
 
 The signing material (private key, certificate, profile) lives in AWS Secrets
 Manager under `picket/apple-signing`, so every build reuses it; nothing is
@@ -173,6 +173,16 @@ Known limits:
 - **Change the camera password**: app → Camera → Set or Generate, then update
   the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
   Settings.
+- **TestFlight** (`app-build → build`, profile `production`, platform `ios`):
+  one-time setup is an app record in App Store Connect (My Apps → + → New
+  App, bundle id `com.danbut.picket`; Apple's API cannot create it). The
+  workflow looks up the record's id, writes the ASC key into a submit profile
+  for that run only, and starts the build with `--auto-submit`, so EAS uploads
+  it when it finishes. Testers go in App Store Connect → Picket → TestFlight →
+  Internal Testing (team members, up to 100, no review; an external group
+  needs a one-time beta review). TestFlight builds expire after 90 days; run
+  `build` again. Switching between `preview` and `production` regenerates the
+  provisioning profile each time, which is automatic and harmless.
 - **New iPhone**: `app-build → register-device`, enroll, approve, then
   `app-build → build`. The profile is recreated with the new device list.
 - **iOS build fails on signing**: the `iOS signing` step's summary shows which
