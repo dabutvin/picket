@@ -34,7 +34,8 @@ export interface AppDeps {
   store: Store;
   connections: ConnectionStore;
   lightroom: LightroomConfig;
-  receiver: ReturnType<typeof createReceiverService>;
+  /** Absent when the stack was deployed without the receiver. */
+  receiver?: ReturnType<typeof createReceiverService>;
   pairing: PairingStore;
   fetchFn?: FetchFn;
 }
@@ -213,11 +214,15 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
     }
   }
 
+  const noReceiver = () => error(503, 'The receiver is not deployed yet. Run deploy with the receiver enabled once EC2 is available in the AWS account.');
+
   async function receiverGet(): Promise<Result> {
+    if (!receiver) return noReceiver();
     return json(200, await receiver.get());
   }
 
   async function receiverPassword(event: APIGatewayProxyEventV2): Promise<Result> {
+    if (!receiver) return noReceiver();
     const body = parseBody<{ password?: unknown }>(event);
     if (!body) return error(400, 'body must be JSON');
     if (body.password !== undefined && typeof body.password !== 'string') return error(400, 'password must be a string');
@@ -230,6 +235,7 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
   }
 
   async function receiverPower(event: APIGatewayProxyEventV2): Promise<Result> {
+    if (!receiver) return noReceiver();
     const body = parseBody<{ action?: unknown }>(event);
     if (body?.action !== 'start' && body?.action !== 'stop') return error(400, 'action must be start or stop');
     return json(200, await receiver.power(body.action));

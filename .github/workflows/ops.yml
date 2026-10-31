@@ -82,7 +82,7 @@ jobs:
           count() { aws dynamodb query --table-name "$TABLE" --index-name "$1" --select COUNT \
             --key-condition-expression "#k = :v" --expression-attribute-names "{\"#k\":\"$2\"}" \
             --expression-attribute-values "{\":v\":{\"S\":\"$3\"}}" --query Count --output text; }
-          state=$(aws ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$IID" = "(receiver not deployed)" ]; then state="not deployed"; else state=$(aws ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].State.Name' --output text); fi
           qd=$(aws sqs get-queue-attributes --queue-url "$Q" --attribute-names ApproximateNumberOfMessages --query Attributes.ApproximateNumberOfMessages --output text)
           dd=$(aws sqs get-queue-attributes --queue-url "$DLQ" --attribute-names ApproximateNumberOfMessages --query Attributes.ApproximateNumberOfMessages --output text)
           {

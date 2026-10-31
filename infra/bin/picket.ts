@@ -41,9 +41,13 @@ const dns = domainName
     }
   : undefined;
 
+/** `-c receiver=false` deploys everything except the EC2 receiver (e.g. while a new AWS account is still blocked from EC2). */
+const receiver = String(ctx('receiver', 'PICKET_RECEIVER') ?? 'true') !== 'false';
+
 new PicketStack(app, 'Picket', {
   lightroom,
   dns,
+  receiver,
   // Region/account come from the CLI profile (`cdk deploy --profile ...`).
   // Pin them here if you want `cdk synth` to produce an environment-specific template.
   env: {

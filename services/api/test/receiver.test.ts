@@ -12,6 +12,17 @@ describe('generatePassword', () => {
   });
 });
 
+describe('receiver routes without a receiver', () => {
+  it('answer 503 with a hint', async () => {
+    const app = createApp(deps({ receiver: undefined }));
+    for (const ev_ of [ev('GET /receiver'), ev('POST /receiver/password', { body: '{}' }), ev('POST /receiver/power', { body: '{"action":"start"}' })]) {
+      const r = await app(ev_);
+      expect(r.statusCode).toBe(503);
+      expect(body(r).error).toMatch(/not deployed/);
+    }
+  });
+});
+
 describe('receiver routes', () => {
   it('GET /receiver returns everything the camera menu needs, including the password', async () => {
     const r = await createApp(deps())(ev('GET /receiver'));

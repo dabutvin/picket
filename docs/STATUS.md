@@ -32,9 +32,10 @@ or DNS step has been exercised against a live system.
   `AWS_SECRET_ACCESS_KEY`, `EXPO_TOKEN`, `APPLE_TEAM_ID`, `ASC_API_KEY_P8`,
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `NETLIFY_AUTH_TOKEN`. Variables `AWS_REGION`
   and `DOMAIN_NAME` are unset (defaults `us-east-1`, `picket.photos`).
-- **AWS**: account 940392916059, IAM user `Picket`. As of the last run it has
-  **no policies attached**; the owner was asked to attach `AdministratorAccess`.
-  Region `us-east-1`. CDK is **not bootstrapped**.
+- **AWS**: account 940392916059, IAM user `Picket` with `AdministratorAccess`.
+  Region `us-east-1`. CDK **is bootstrapped** (run #3). The account is a new
+  one and **EC2 is blocked pending AWS account verification** (run #5). The
+  `Picket` stack is in `ROLLBACK_COMPLETE`; CDK replaces it on the next deploy.
 - **Adobe**: Developer Console project with Lightroom Services, OAuth Native App
   credential in development mode, the Lightroom account added as a beta user.
   Client id, redirect URI (`adobe+94690ff144227aa43751adfb4cb46fc1432adb0c://adobeid/<clientId>`)
@@ -54,12 +55,19 @@ or DNS step has been exercised against a live system.
 | run | result | cause | fixed by |
 |---|---|---|---|
 | #1 (2026-10-31 00:40Z) | failed in "Resolve DNS zone" | `aws route53 list-hosted-zones-by-name` denied; error text was swallowed by a `2>/dev/null` | PR #3: external-DNS mode, Route 53 optional, errors surfaced |
-| #2 (2026-10-31 00:58Z) | failed in `cdk bootstrap` | `User Picket is not authorized to perform cloudformation:DescribeStacks` | needs an IAM policy on the user (owner action), not a code change |
+| #2 (2026-10-31 00:58Z) | failed in `cdk bootstrap` | `User Picket is not authorized to perform cloudformation:DescribeStacks` | owner attached `AdministratorAccess` |
+| #3 (2026-10-31 01:08Z) | bootstrap OK; stack rolled back at resource 29/86 | EC2 rejects an apostrophe in a security group rule description (`Let's Encrypt…`) | PR #5 |
+| #4 (2026-10-31 01:17Z) | rolled back creating the Lightroom uploader | account Lambda quota too small for `ReservedConcurrentExecutions: 1` | PR #6 (SQS `maxConcurrency: 2` instead) |
+| #5 (2026-10-31 01:25Z) | rolled back creating the EC2 receiver, after everything else created | EC2: "This account is currently blocked and not recognized as a valid account" (new-account verification hold) | owner action with AWS; receiver made optional (`receiver=false` deploys the rest) |
 
 ## Next steps, in order
 
-1. Owner attaches `AdministratorAccess` to IAM user `Picket`.
-2. Run `deploy`. Expect: CDK bootstrap, stack creation (~10 min), Netlify
+1. AWS account verification: EC2 is blocked until AWS finishes verifying the
+   new account (payment method, identity). Check the console banner / email,
+   or open the support case EC2's error links to. Meanwhile run `deploy` with
+   the **receiver** box unchecked: everything except the FTPS instance goes
+   live and the app can be paired and connected to Lightroom.
+2. Run `deploy` (receiver checked) once EC2 works. Expect: CDK bootstrap, stack creation (~10 min), Netlify
    records (`ftp` A, ACM validation CNAME), a wait for the certificate, a
    second `cdk deploy` attaching `api.picket.photos`, the `api` CNAME, and a
    pairing code in the summary. Watch for first-run surprises in
