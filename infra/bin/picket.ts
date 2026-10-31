@@ -23,8 +23,21 @@ const lightroom = {
   rawContentType: ctx('lightroomRawContentType', 'LIGHTROOM_RAW_CONTENT_TYPE'),
 };
 
+/**
+ * DNS: the deploy workflow finds the Route 53 zone for the domain and passes
+ * `-c domainName=picket.photos -c hostedZoneId=Z... -c dnsDelegated=true|false`.
+ * Without these, synth/deploy produce an IP-only receiver and the default API URL.
+ */
+const domainName = ctx('domainName', 'DOMAIN_NAME');
+const hostedZoneId = ctx('hostedZoneId', 'HOSTED_ZONE_ID');
+const dns =
+  domainName && hostedZoneId
+    ? { domainName, hostedZoneId, delegated: String(ctx('dnsDelegated', 'DNS_DELEGATED') ?? 'false') === 'true' }
+    : undefined;
+
 new PicketStack(app, 'Picket', {
   lightroom,
+  dns,
   // Region/account come from the CLI profile (`cdk deploy --profile ...`).
   // Pin them here if you want `cdk synth` to produce an environment-specific template.
   env: {

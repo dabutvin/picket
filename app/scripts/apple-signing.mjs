@@ -34,13 +34,25 @@ const PROFILE_TYPES = { adhoc: 'IOS_APP_ADHOC', appstore: 'IOS_APP_STORE' };
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 const log = (...a) => console.error('[apple-signing]', ...a);
 
+/** Accept the .p8 as pasted: raw PEM, PEM with literal "\n" sequences, or base64 of the file. */
+export function normalizeP8(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return s;
+  if (s.includes('\\n')) s = s.replace(/\\n/g, '\n');
+  if (!s.includes('BEGIN')) {
+    const decoded = Buffer.from(s, 'base64').toString('utf8');
+    if (decoded.includes('BEGIN')) s = decoded;
+  }
+  return s.endsWith('\n') ? s : `${s}\n`;
+}
+
 export function makeJwt({ keyId, issuerId, p8, now = Date.now() }) {
   const header = b64url(JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' }));
   const iat = Math.floor(now / 1000);
   // Apple rejects tokens valid for more than 20 minutes; 15 keeps clock skew harmless.
   const payload = b64url(JSON.stringify({ iss: issuerId, iat, exp: iat + 15 * 60, aud: 'appstoreconnect-v1' }));
   const data = `${header}.${payload}`;
-  const signature = sign('sha256', Buffer.from(data), { key: createPrivateKey(p8), dsaEncoding: 'ieee-p1363' });
+  const signature = sign('sha256', Buffer.from(data), { key: createPrivateKey(normalizeP8(p8)), dsaEncoding: 'ieee-p1363' });
   return `${data}.${b64url(signature)}`;
 }
 
@@ -326,6 +338,9 @@ function selfTest() {
   if (!info.includes('BEGIN CERTIFICATE')) throw new Error('p12 self-test failed');
   const ci = certInfo(certDer.toString('base64'));
   if (!ci.serial || !ci.notAfter) throw new Error('certInfo self-test failed');
+  const escaped = pkcs8.replace(/\n/g, '\\n');
+  if (normalizeP8(escaped) !== pkcs8 && normalizeP8(escaped).trim() !== pkcs8.trim()) throw new Error('normalizeP8 escaped self-test failed');
+  if (!normalizeP8(Buffer.from(pkcs8).toString('base64')).includes('BEGIN')) throw new Error('normalizeP8 base64 self-test failed');
   const udids = collectUdids({ udidsCsv: 'abc-1, def-2' });
   if (udids.size !== 2 || !udids.has('ABC-1')) throw new Error('collectUdids self-test failed');
   console.log(JSON.stringify({ ok: true, jwtHeader: header, cert: ci }, null, 2));

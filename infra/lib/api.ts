@@ -9,6 +9,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
 
 import type { LightroomSettings } from './lightroom';
@@ -19,6 +22,8 @@ export interface ApiProps {
   lightroom: LightroomSettings;
   /** Secret holding the user's Lightroom tokens (owned by the Lightroom construct). */
   lightroomConnection: secretsmanager.ISecret;
+  /** Serve the API at https://<hostName> with an ACM certificate validated in `zone`. Requires the zone to be delegated. */
+  dns?: { zone: route53.IHostedZone; hostName: string };
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -115,5 +120,20 @@ export class Api extends Construct {
     http.addRoutes({ path: '/lightroom/refresh', methods: [apigw.HttpMethod.POST], integration });
 
     this.url = http.apiEndpoint;
+
+    if (props.dns) {
+      const certificate = new acm.Certificate(this, 'Certificate', {
+        domainName: props.dns.hostName,
+        validation: acm.CertificateValidation.fromDns(props.dns.zone),
+      });
+      const domain = new apigw.DomainName(this, 'Domain', { domainName: props.dns.hostName, certificate });
+      new apigw.ApiMapping(this, 'Mapping', { api: http, domainName: domain });
+      new route53.ARecord(this, 'DnsRecord', {
+        zone: props.dns.zone,
+        recordName: props.dns.hostName,
+        target: route53.RecordTarget.fromAlias(new targets.ApiGatewayv2DomainProperties(domain.regionalDomainName, domain.regionalHostedZoneId)),
+      });
+      this.url = `https://${props.dns.hostName}`;
+    }
   }
 }

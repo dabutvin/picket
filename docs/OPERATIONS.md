@@ -4,30 +4,55 @@ Nothing in this project needs a terminal. Every action is a **Run workflow**
 button in the GitHub app (Actions tab), and every result is written to the run's
 summary page. Credentials live in the repository's Actions secrets.
 
-## Secrets and variables (Settings → Secrets and variables → Actions)
+## Where secrets live
+
+GitHub holds only what the workflows need to reach AWS and Expo. Everything
+else lives in AWS Secrets Manager, where you read or edit it in the AWS console
+on your phone, and the workflows fetch it at run time. No workflow prints a
+secret value.
+
+### GitHub (Settings → Secrets and variables → Actions)
 
 | name | kind | what it is |
 |---|---|---|
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret | An IAM user's access key in your AWS account. Simplest path: IAM → Users → Create user → attach `AdministratorAccess` → Security credentials → Create access key. |
-| `AWS_DEPLOY_ROLE_ARN` | secret, optional | Instead of keys: an IAM role trusting GitHub's OIDC provider for `repo:dabutvin/picket:*`. If set, the workflows use it and ignore the keys. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret | An IAM user's access key. Simplest: IAM → Users → Create user → attach `AdministratorAccess` → Create access key. |
+| `AWS_DEPLOY_ROLE_ARN` | secret, optional | Instead of keys: an IAM role trusting GitHub's OIDC provider for `repo:dabutvin/picket:*`. |
+| `EXPO_TOKEN` | secret | expo.dev → account → Access tokens. |
 | `AWS_REGION` | variable, optional | Defaults to `us-east-1`. |
-| `PICKET_FTP_PASSWORD` | secret, optional | The password you'll type into the camera. Letters and digits, up to 64 chars. If unset, AWS generates one and you read it in the Secrets Manager console. |
-| `PICKET_API_TOKEN` | secret, optional | The bearer token you'll paste into the app's Settings. Same fallback as above. |
-| `EXPO_TOKEN` | secret | For app builds. expo.dev → account → Access tokens. |
-| `APPLE_TEAM_ID` | secret | developer.apple.com → Membership details (10 characters). |
-| `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | secret | An App Store Connect **Team** API key with the **Admin** role: App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → Generate. Paste the whole `.p8` file contents into `ASC_API_KEY_P8`; the Key ID is on that row, the Issuer ID at the top of the page. |
+| `DOMAIN_NAME` | variable, optional | Defaults to `picket.photos`. |
 
-Secrets only ever flow GitHub → AWS / Expo / Apple. No workflow prints a secret value.
+### AWS Secrets Manager (created by `deploy`)
+
+| secret | what it is | you |
+|---|---|---|
+| `Picket-ReceiverFtpPassword…` (name in the deploy summary) | the password the camera uses | read it, or edit it to something easy to type, then `ops → reload-ftp-password` |
+| `Picket-ApiToken…` (name in the deploy summary) | the bearer token for the app's Settings | read it; the API picks up edits within 5 minutes |
+| `picket/apple` | your App Store Connect **Team** API key: `teamId`, `keyId`, `issuerId`, `p8` | fill the four values once (below) |
+| `picket/apple-signing` | the iOS certificate, private key and profile the build workflow created | leave alone |
+| `Picket-LightroomConnection…` | your Lightroom OAuth tokens, written by Connect Lightroom in the app | leave alone |
+
+Filling `picket/apple`: App Store Connect → Users and Access → Integrations →
+App Store Connect API → **Team Keys** → Generate (role **Admin**). Download the
+`.p8` once; the Key ID is on that row, the Issuer ID at the top of the page;
+the Team ID is at developer.apple.com → Membership details. In the AWS console
+open the secret → Retrieve secret value → Edit, and set the four keys. The
+`p8` value can be pasted as the file's text, with literal `\n` for line breaks,
+or base64 of the file; the build script accepts all three.
 
 ## Workflows
 
 ### `deploy`
 
-`deploy` (default) bootstraps the CDK environment if needed, deploys the stack,
-pushes `PICKET_FTP_PASSWORD` / `PICKET_API_TOKEN` into the AWS secrets when they
-differ, reloads the FTP password on the receiver over SSM, and writes a summary
-table with `ApiUrl`, `ReceiverIp`, `FtpUser` and friends. `diff` shows what a
-deploy would change without changing anything.
+`deploy` (default) finds (or creates) the Route 53 hosted zone for the domain,
+points the registrar at it when the domain is registered with Route 53 in the
+same account, bootstraps the CDK environment if needed, deploys the stack, and
+writes a summary table with `ApiUrl`, `FtpHost`, `FtpUser` and friends plus the
+names of the secrets to read. `diff` shows what a deploy would change without
+changing anything.
+
+While the domain is not yet delegated to the zone (registrar still pointing
+elsewhere), the API keeps its default `execute-api` URL; run `deploy` again
+once DNS has propagated and `api.picket.photos` is added.
 
 First deploy takes about 10 minutes (the receiver needs ~3 more to install
 pure-ftpd after the stack reports done). Re-deploys after a code change are a
@@ -39,6 +64,7 @@ couple of minutes. Running it when nothing changed is harmless.
 |---|---|
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
+| `reload-ftp-password` | after editing the camera password secret, make the receiver use it |
 | `redrive-dlq` | put picks that failed six times back on the upload queue (after you fixed the cause, e.g. reconnected Lightroom or freed storage) |
 | `uploader-errors` | last 24 h of error lines from the Lightroom uploader |
 | `destroy` | tear the stack down (type `destroy` in the confirm box). The photos bucket and the Photos table are kept. |
@@ -64,23 +90,39 @@ Runs on every pull request and push to `main`: synth, tests, typechecks.
 
 ## One-time setup checklist (phone only)
 
-1. **AWS**: create the IAM user (or OIDC role), add the key secrets. Run
-   `deploy`. Read `ReceiverIp` and `FtpUser` from the summary.
-2. **Camera**: `docs/CAMERA_SETUP.md`. Host Name = `ReceiverIp`, user =
-   `FtpUser`, password = `PICKET_FTP_PASSWORD`, Secure Protocol on, Passive on.
-   Set *Root Certificate Error → Connect* (the receiver's certificate is
-   self-signed).
+1. **AWS**: IAM user (or OIDC role) → GitHub secrets. Run `deploy`. Read
+   `FtpHost`, `FtpUser`, `ApiUrl` and the secret names from the summary.
+2. **Camera**: `docs/CAMERA_SETUP.md`. Host Name = `FtpHost`
+   (`ftp.picket.photos`), user = `FtpUser`, password from Secrets Manager,
+   Secure Protocol on, Passive on. Try *Root Certificate Error → Does Not
+   Connect* first; if the camera rejects the Let's Encrypt chain, use
+   *Connect* (TLS still encrypts, the camera just skips verifying the server).
 3. **Adobe**: done. The Native App credential's client id, redirect URI and
    scopes are the defaults in `infra/bin/picket.ts`.
-4. **Apple**: join the Apple Developer Program (developer.apple.com, works
-   from Safari on the phone), note the Team ID, create the App Store Connect
-   Team API key, add the four secrets above.
-5. **Expo**: create an account at expo.dev, make an access token, add
-   `EXPO_TOKEN`. No project needed; the first build creates it.
+4. **Apple**: join the Apple Developer Program (works from Safari on the
+   phone), create the App Store Connect Team API key, fill `picket/apple` in
+   Secrets Manager.
+5. **Expo**: account + access token → `EXPO_TOKEN`. No project needed; the
+   first build creates it.
 6. **Phone enrollment**: `app-build → register-device`, follow the summary.
 7. **Build**: `app-build → build` (ios, preview). Open the build link on the
-   phone and tap Install. Settings → `ApiUrl` + `PICKET_API_TOKEN` → Connect
+   phone and tap Install. Settings → `ApiUrl` + the API token → Connect
    Lightroom.
+
+## Domain: picket.photos
+
+The stack uses one Route 53 hosted zone for the domain:
+
+- `ftp.picket.photos` → the receiver's Elastic IP. The receiver starts with a
+  self-signed certificate and swaps in a Let's Encrypt one as soon as the name
+  resolves publicly (a timer retries every 15 minutes; certbot renews it).
+- `api.picket.photos` → the HTTP API, with an ACM certificate. Only created
+  once the domain is delegated to the zone, because certificate validation
+  would otherwise stall the deploy.
+
+If the domain was registered with Route 53 in the same AWS account, `deploy`
+points it at the zone automatically. If it was registered elsewhere, the deploy
+summary lists the four name servers to enter at the registrar.
 
 ## How the iOS signing works without a computer
 
@@ -100,7 +142,8 @@ Known limits:
   or just-renewed membership; the first build may fail with a device error
   until then.
 - The App Store Connect key must be a **Team** key with **Admin** role;
-  app-scoped or Developer-role keys can't manage certificates.
+  app-scoped or Developer-role keys can't manage certificates. It is read from
+  Secrets Manager `picket/apple`, never from GitHub.
 - An Android phone needs none of this: `app-build → build` with platform
   `android` installs straight from the EAS link.
 
@@ -117,7 +160,9 @@ Known limits:
   reconnect Lightroom in Settings. A 413 means Lightroom storage is full. A 415
   means set `LIGHTROOM_RAW_CONTENT_TYPE=application/octet-stream` as a
   repository variable, then `deploy`. Then `redrive-dlq`.
-- **Rotate the FTP password or API token**: change the secret, run `deploy`.
+- **Change the FTP password**: edit the secret in Secrets Manager, run
+  `ops → reload-ftp-password`, update the camera. **Change the API token**: edit
+  the secret; the API uses it within 5 minutes.
 - **New iPhone**: `app-build → register-device`, enroll, approve, then
   `app-build → build`. The profile is recreated with the new device list.
 - **iOS build fails on signing**: the `iOS signing` step's summary shows which

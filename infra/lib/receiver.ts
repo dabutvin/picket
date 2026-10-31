@@ -5,6 +5,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
 import { Construct } from 'constructs';
 
 export interface ReceiverProps {
@@ -15,6 +16,8 @@ export interface ReceiverProps {
   /** Passive-mode data port range opened on the security group. */
   passivePorts?: { min: number; max: number };
   instanceType?: ec2.InstanceType;
+  /** When set, an A record `<hostName>` is created in `zone` and the receiver gets a Let's Encrypt certificate for it. */
+  dns?: { zone: route53.IHostedZone; hostName: string };
 }
 
 /**
@@ -24,6 +27,8 @@ export interface ReceiverProps {
  */
 export class Receiver extends Construct {
   readonly publicIp: string;
+  /** What the camera should use as Host Name: the DNS name when configured, else the IP. */
+  readonly hostName: string;
   readonly ftpUser: string;
   readonly ftpPassword: secretsmanager.Secret;
   readonly instance: ec2.Instance;
@@ -49,6 +54,7 @@ export class Receiver extends Construct {
     });
     sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(21), 'FTP control (TLS required)');
     sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcpRange(pasv.min, pasv.max), 'FTP passive data');
+    if (props.dns) sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), "Let's Encrypt HTTP-01 challenge");
     // No SSH. Use Session Manager: aws ssm start-session --target <instance-id>
 
     // The camera's password. Letters and digits only so it's easy to type on the camera.
@@ -59,6 +65,15 @@ export class Receiver extends Construct {
 
     const eip = new ec2.CfnEIP(this, 'Eip', { domain: 'vpc' });
     this.publicIp = eip.attrPublicIp;
+    this.hostName = props.dns?.hostName ?? this.publicIp;
+    if (props.dns) {
+      new route53.ARecord(this, 'DnsRecord', {
+        zone: props.dns.zone,
+        recordName: props.dns.hostName,
+        target: route53.RecordTarget.fromIpAddresses(this.publicIp),
+        ttl: cdk.Duration.minutes(5),
+      });
+    }
 
     const role = new iam.Role(this, 'Role', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -73,6 +88,7 @@ export class Receiver extends Construct {
         RAW_PREFIX: props.rawPrefix,
         REGION: stack.region,
         PUBLIC_IP: this.publicIp,
+        HOST_NAME: props.dns?.hostName ?? '',
         FTP_USER: this.ftpUser,
         FTP_SECRET_ARN: this.ftpPassword.secretArn,
         PASV_MIN: String(pasv.min),
