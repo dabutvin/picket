@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action
         required: false
@@ -211,6 +211,47 @@ jobs:
               --query 'events[-40:].[timestamp,message]' --output text | sed 's/\t/  /' | cut -c1-400 || echo "(no log group yet)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Everything about the pick → Lightroom pipeline in one job log: queue depths, every photo by
+      # lightroomStatus, the router's and uploader's recent CloudWatch events, a peek at the DLQ.
+      - name: Lightroom pipeline debug
+        if: inputs.action == 'lightroom-debug'
+        env:
+          TABLE: ${{ steps.outs.outputs.Table }}
+          Q: ${{ steps.outs.outputs.UploadQueueUrl }}
+          DLQ: ${{ steps.outs.outputs.UploadDlqUrl }}
+          LG: ${{ steps.outs.outputs.UploaderLogGroup }}
+        run: |
+          set -uo pipefail
+          since=$(( ($(date +%s) - 6*3600) * 1000 ))
+          section() { printf '\n===== %s =====\n' "$1"; }
+          {
+            section "queues (visible / in flight)"
+            for q in "$Q" "$DLQ"; do
+              printf '%s: ' "${q##*/}"
+              aws sqs get-queue-attributes --queue-url "$q" --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+                --query '[Attributes.ApproximateNumberOfMessages, Attributes.ApproximateNumberOfMessagesNotVisible]' --output text
+            done
+            for s in queued uploading failed done duplicate; do
+              section "photos with lightroomStatus=$s (up to 20)"
+              aws dynamodb query --table-name "$TABLE" --index-name byLightroomStatus \
+                --key-condition-expression "#k = :v" --expression-attribute-names '{"#k":"lightroomStatus"}' \
+                --expression-attribute-values "{\":v\":{\"S\":\"$s\"}}" --max-items 20 \
+                --query 'Items[].{photoId:photoId.S,file:fileName.S,status:status.S,lightroom:lightroom.M}' --output json
+            done
+            section "router log group(s)"
+            groups="$(aws logs describe-log-groups --log-group-name-prefix Picket-LightroomRouterLogs --query 'logGroups[].logGroupName' --output text)"
+            echo "${groups:-none found}"
+            for g in $groups; do
+              section "router events: $g (last 6h, newest 60)"
+              aws logs filter-log-events --log-group-name "$g" --start-time "$since" --query 'events[-60:].[timestamp,message]' --output text | cut -c1-600
+            done
+            section "uploader events: $LG (last 6h, newest 80)"
+            aws logs filter-log-events --log-group-name "$LG" --start-time "$since" --query 'events[-80:].[timestamp,message]' --output text | cut -c1-800
+            section "dead-letter queue peek (up to 5 messages, left in place)"
+            aws sqs receive-message --queue-url "$DLQ" --max-number-of-messages 5 --visibility-timeout 5 --query 'Messages[].Body' --output text
+          } 2>&1 | tee report.txt
+          { echo "## Lightroom pipeline debug"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Destroy
         if: inputs.action == 'destroy'
