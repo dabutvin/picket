@@ -32,6 +32,11 @@
     "scheme": [
       "picket",
       "adobe+94690ff144227aa43751adfb4cb46fc1432adb0c"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "eb68e542-b0d1-44b5-881f-8df4326d867f"
+      }
+    }
   }
 }
