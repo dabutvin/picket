@@ -1,4 +1,16 @@
-import type { ConnectRequest, LightroomStatusView, Photo, PhotoPage, PhotoStatus, ReceiverPowerAction, ReceiverSettings, Stats } from './types';
+import type {
+  ConnectRequest,
+  Decision,
+  LightroomStatusView,
+  Photo,
+  PhotoPage,
+  PhotoStatus,
+  ReceiverPowerAction,
+  ReceiverSettings,
+  SendRequest,
+  SendResult,
+  Stats,
+} from './types';
 import type { Settings } from './settings';
 
 export class ApiError extends Error {
@@ -12,8 +24,11 @@ export class ApiError extends Error {
 
 export interface Api {
   list(status: PhotoStatus, limit?: number, cursor?: string): Promise<PhotoPage>;
-  decide(photoId: string, decision: PhotoStatus): Promise<Photo>;
-  retryLightroom(photoId: string): Promise<Photo>;
+  decide(photoId: string, decision: Decision): Promise<Photo>;
+  /** Send one pick to Lightroom, or retry / nudge one that failed or is stuck on queued. */
+  sendOne(photoId: string): Promise<Photo>;
+  /** Send a batch of picks (at most 100 ids per call), or every pick with `all: true`. */
+  sendMany(req: SendRequest): Promise<SendResult>;
   stats(): Promise<Stats>;
   lightroom(): Promise<LightroomStatusView>;
   connectLightroom(req: ConnectRequest): Promise<LightroomStatusView>;
@@ -67,7 +82,8 @@ export function createApi({ apiUrl, token }: Settings): Api {
       return call<PhotoPage>(`/photos?${q}`);
     },
     decide: (photoId, decision) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/decision`, { decision }),
-    retryLightroom: (photoId) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/lightroom`),
+    sendOne: (photoId) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/lightroom`),
+    sendMany: (req) => post<SendResult>('/lightroom/send', req),
     stats: () => call<Stats>('/stats'),
     lightroom: () => call<LightroomStatusView>('/lightroom'),
     connectLightroom: (req) => post<LightroomStatusView>('/lightroom', req),

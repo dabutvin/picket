@@ -1,44 +1,53 @@
 # Status and handoff
 
-Last updated: 2026-10-31 16:30Z, after the photo-id migration. **Read this
-first.** The rest of `docs/` describes the intended system; this file says what
+Last updated: 2026-10-31, after the send-to-Lightroom / carousel change (#25).
+**Read this first.** The rest of `docs/` describes the intended system; this file says what
 is real, what to do next, and how the previous agents operated it.
 
 ## In one line
 
 **The whole loop works end to end.** Shots from the a7C II reach the receiver
-over FTPS, land in S3, get previews, appear in the app's Review tab, and a swipe
-right puts the RAW into the *Picket* album of Elise's Lightroom cloud catalog
+over FTPS, land in S3, get previews, appear in the app's Review tab, and a pick
+sent from the Picks tab puts the RAW into the *Picket* album of Elise's Lightroom cloud catalog
 (first pick showed **In Lightroom** at ~13:07Z after #20 and #21). Elise's paid
 Adobe account is the connected one. The app is installed both ad hoc and via
 TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 ## Resume here
 
-0. ~~Run the photo-id migration~~ Done 2026-10-31 16:22Z (`ops` run 13,
+0. **Deploy and build #25** (`deploy` for the API + new route, `app-build →
+   build production ios` for TestFlight). The app now has a Review carousel
+   (left/right browse, flick up = pick, flick down = skip), picks wait on the
+   Picks tab until **Send all to Lightroom** (or a long-press selection), and
+   sent photos move to a Sent tab. Picks delivered before #25 move to Sent
+   the first time the Picks tab loads; no ops run needed. Until both are
+   deployed, an old app against the new API still works (its picks simply
+   stop auto-uploading), and the new app against the old API shows an alert
+   on the Sent tab.
+1. ~~Run the photo-id migration~~ Done 2026-10-31 16:22Z (`ops` run 13,
    confirm=`migrate`): 642 rows, 526 moved to the frame-based id, 116 already
    current, no merges, no skips. Camera re-sends are now safe on any day
    (*FTP Transfer → Transfer Status → Only Failed Transfer*).
-1. **Watch the first Lightroom token refresh.** Adobe access tokens expire
+2. **Watch the first Lightroom token refresh.** Adobe access tokens expire
    after about a day; the uploader refreshes with the stored refresh token on
    its next pick. A pick failing with a 403 tomorrow means the refresh path
    needs a look (`ops → lightroom-debug` shows the uploader's error; Settings →
    Disconnect / Connect Lightroom as Elise is the manual recovery).
-2. **Make the repository private.** Workflow summaries show pairing codes and
+3. **Make the repository private.** Workflow summaries show pairing codes and
    the deploy log echoes `PAIRING_CODE`; codes are one-use and 30-minute, but
    there is no reason to publish them.
-3. **Let's Encrypt budget**: 4 of 5 weekly issuances for `ftp.picket.photos`
+4. **Let's Encrypt budget**: 4 of 5 weekly issuances for `ftp.picket.photos`
    were used on Oct 31 (02:01, 02:54, 03:04, 03:19Z); the window clears around
    Nov 7. Until then avoid changes to `cloud-init.sh`, `upload-to-s3.sh` or
    `sweep.sh` (each replaces the receiver and issues a certificate), or accept
    the self-signed fallback (the camera is not verifying anyway).
-4. **Elise's own phone**, if not done: App Store Connect → Users and Access →
+5. **Elise's own phone**, if not done: App Store Connect → Users and Access →
    invite her Apple ID; Picket → TestFlight → Internal Testing → add her; she
    installs from the TestFlight app; `ops → pairing-code`; pair. All phones
    share one API token, one Lightroom connection, the same photos.
-5. Optional camera hardening: *Root Certificate Error → Does Not Connect* to
+6. Optional camera hardening: *Root Certificate Error → Does Not Connect* to
    learn whether the a7C II trusts Let's Encrypt's root.
-6. Ops polish (small, when convenient): `ops → status` and `uploader-errors`
+7. Ops polish (small, when convenient): `ops → status` and `uploader-errors`
    write only to the step summary (unreadable through the API; use
    `lightroom-debug` or `tee` them); `lightroom-debug`'s photo rows show
    `null` for file/status/lightroom because the `byLightroomStatus` index is
@@ -91,6 +100,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 | #20 | uploader's first write: DynamoDB "ExpressionAttributeNames must not be empty" | update helper omits the empty map; regression test against the real store |
 | #21 | Adobe 415 `InvalidContentTypeError` on `image/x-sony-arw` | ARW masters sent as `application/octet-stream` |
 | #23 | a frame re-sent on a later day became a second row (id was the S3 key, which carries the upload date) | id = file name + EXIF capture time; `ops → migrate-photo-ids` moved the 526 existing rows (applied 16:22Z) |
+| #25 | every swipe right uploaded at once; sent photos lingered in Picks | picking only stages; Picks tab sends in a batch (`POST /lightroom/send`); uploader marks `status = sent`; Sent tab; Review is a carousel (ADR-008) |
 
 ## External accounts and secrets (names only)
 
@@ -123,8 +133,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
   read must be in the job log. The pairing code is only in the summary (and the
   deploy log's env group).
 - **First stops**: camera-side → `ops → receiver-logs`; pick-side →
-  `ops → lightroom-debug`. A pick stuck on *Queued* means the uploader never
-  reached its first status write; *Failed* carries Adobe's error text in the
+  `ops → lightroom-debug`. Since #25 nothing uploads until **Send to
+  Lightroom** is tapped on the Picks tab, so "my pick is not in Lightroom"
+  first means "was it sent" (the Picks tab shows Queued/Sending/Failed per
+  photo). A pick stuck on *Queued* means the uploader never
+  reached its first status write (**Send again** in its detail view nudges it); *Failed* carries Adobe's error text in the
   app (tap **Retry upload** after a fix); six failures send it to the DLQ
   (`ops → redrive-dlq`).
 - **Any change to `cloud-init.sh`, `upload-to-s3.sh` or `sweep.sh` replaces

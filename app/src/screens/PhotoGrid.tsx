@@ -1,12 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import type { Api } from '../lib/api';
 import type { Photo, PhotoStatus } from '../lib/types';
 import { colors } from '../lib/theme';
+import { captureTime, exifLine, megabytes } from '../lib/format';
 import { LightroomBadge } from '../components/LightroomBadge';
 
 const COLUMNS = 3;
+const PAGE = 60;
+const POLL_MS = 5000;
+
+export interface GridHelpers {
+  replace: (p: Photo) => void;
+  replaceMany: (ps: Photo[]) => void;
+  remove: (id: string) => void;
+  removeMany: (ids: string[]) => void;
+  close: () => void;
+  reload: () => void;
+}
+
+export interface BarContext {
+  items: Photo[];
+  selected: Photo[];
+  selecting: boolean;
+  endSelecting: () => void;
+  helpers: GridHelpers;
+}
 
 interface Props {
   api: Api;
@@ -14,27 +34,40 @@ interface Props {
   title: string;
   emptyText: string;
   /** Rendered under the enlarged photo; receives helpers to mutate the list. */
-  renderActions: (photo: Photo, helpers: { replace: (p: Photo) => void; remove: (id: string) => void; close: () => void }) => React.ReactNode;
+  renderActions: (photo: Photo, helpers: GridHelpers) => ReactNode;
+  /** A bar under the grid. When given, "Select" (or a long press) turns thumbnails into a multi-select. */
+  renderBar?: (ctx: BarContext) => ReactNode;
+  /** Reload every few seconds while this holds (uploads in progress). */
+  pollWhile?: (items: Photo[]) => boolean;
+  /** Under the title, instead of the plain count. */
+  subtitle?: (items: Photo[]) => string;
+  /** Show each thumbnail's Lightroom state. Off for the Sent tab, where it says the same thing on every cell. */
+  cellBadges?: boolean;
 }
 
-/** Shared grid + detail sheet for the Picks and Skipped screens. */
-export function PhotoGrid({ api, status, title, emptyText, renderActions }: Props) {
+/** Shared grid + detail view for the Picks, Sent and Skipped screens. */
+export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, cellBadges = true }: Props) {
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<Photo[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Photo | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const load = useCallback(
-    async (reset: boolean) => {
-      setLoading(true);
+    async (mode: 'reset' | 'more' | 'refresh' | 'poll') => {
+      if (mode === 'refresh') setRefreshing(true);
+      else if (mode !== 'poll') setLoading(true);
       try {
-        const page = await api.list(status, 60, reset ? undefined : cursor);
-        setItems((p) => (reset ? page.items : [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))]));
+        const page = await api.list(status, PAGE, mode === 'more' ? cursor : undefined);
+        setItems((p) => (mode === 'more' ? [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))] : page.items));
         setCursor(page.cursor);
       } catch (e) {
-        Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
+        if (mode !== 'poll') Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
       } finally {
+        setRefreshing(false);
         setLoading(false);
       }
     },
@@ -42,56 +75,126 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions }: Prop
   );
 
   useEffect(() => {
-    void load(true);
+    void load('reset');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, status]);
 
-  const helpers = {
-    replace: (p: Photo) => {
-      setItems((list) => list.map((x) => (x.photoId === p.photoId ? p : x)));
-      setSelected((s) => (s?.photoId === p.photoId ? p : s));
-    },
-    remove: (id: string) => {
-      setItems((list) => list.filter((x) => x.photoId !== id));
-      setSelected((s) => (s?.photoId === id ? null : s));
-    },
-    close: () => setSelected(null),
+  // While something is on its way to Lightroom, keep the states fresh (a sent photo leaves this tab).
+  useEffect(() => {
+    if (!pollWhile?.(items)) return;
+    const t = setTimeout(() => void load('poll'), POLL_MS);
+    return () => clearTimeout(t);
+  }, [items, pollWhile, load]);
+
+  // Drop selections that left the list (sent, skipped, un-picked).
+  useEffect(() => {
+    setPicked((s) => {
+      const ids = new Set(items.map((p) => p.photoId));
+      const next = new Set([...s].filter((id) => ids.has(id)));
+      return next.size === s.size ? s : next;
+    });
+  }, [items]);
+
+  const helpers: GridHelpers = useMemo(
+    () => ({
+      replace: (p) => {
+        setItems((list) => list.map((x) => (x.photoId === p.photoId ? p : x)));
+        setSelected((s) => (s?.photoId === p.photoId ? p : s));
+      },
+      replaceMany: (ps) => {
+        const by = new Map(ps.map((p) => [p.photoId, p]));
+        setItems((list) => list.map((x) => by.get(x.photoId) ?? x));
+        setSelected((s) => (s && by.get(s.photoId)) ?? s);
+      },
+      remove: (id) => {
+        setItems((list) => list.filter((x) => x.photoId !== id));
+        setSelected((s) => (s?.photoId === id ? null : s));
+      },
+      removeMany: (ids) => {
+        const gone = new Set(ids);
+        setItems((list) => list.filter((x) => !gone.has(x.photoId)));
+        setSelected((s) => (s && gone.has(s.photoId) ? null : s));
+      },
+      close: () => setSelected(null),
+      reload: () => void load('poll'),
+    }),
+    [load],
+  );
+
+  const endSelecting = () => {
+    setSelecting(false);
+    setPicked(new Set());
   };
+  const toggle = (id: string) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const cell = (width - 16 * 2 - 6 * (COLUMNS - 1)) / COLUMNS;
+  const pickedItems = items.filter((p) => picked.has(p.photoId));
 
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.count}>
-          {items.length}
-          {cursor ? '+' : ''}
-        </Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle ? subtitle(items) : `${items.length}${cursor ? '+' : ''}`}</Text>
+        </View>
+        {renderBar && items.length > 0 && (
+          <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8}>
+            <Text style={styles.headerAction}>{selecting ? 'Done' : 'Select'}</Text>
+          </Pressable>
+        )}
       </View>
       <FlatList
         data={items}
         numColumns={COLUMNS}
         keyExtractor={(p) => p.photoId}
         columnWrapperStyle={{ gap: 6 }}
-        contentContainerStyle={{ gap: 6 }}
-        onEndReached={() => cursor && !loading && void load(false)}
-        onRefresh={() => void load(true)}
-        refreshing={loading && items.length === 0}
-        ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.empty}>{emptyText}</Text>}
-        renderItem={({ item }) => (
-          <Pressable onPress={() => setSelected(item)} style={{ width: cell, height: cell }}>
-            <Image source={{ uri: item.thumbUrl }} contentFit="cover" style={styles.thumb} />
-            <LightroomBadge info={item.lightroom} compact />
-          </Pressable>
-        )}
+        contentContainerStyle={{ gap: 6, flexGrow: 1 }}
+        onEndReached={() => cursor && !loading && void load('more')}
+        onRefresh={() => void load('refresh')}
+        refreshing={refreshing}
+        extraData={[picked, selecting]}
+        ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} /> : <Text style={styles.empty}>{emptyText}</Text>}
+        renderItem={({ item }) => {
+          const isPicked = picked.has(item.photoId);
+          return (
+            <Pressable
+              onPress={() => (selecting ? toggle(item.photoId) : setSelected(item))}
+              onLongPress={
+                renderBar
+                  ? () => {
+                      setSelecting(true);
+                      toggle(item.photoId);
+                    }
+                  : undefined
+              }
+              style={{ width: cell, height: cell }}
+            >
+              <Image source={{ uri: item.thumbUrl }} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
+              {cellBadges && <LightroomBadge info={item.lightroom} compact />}
+              {selecting && (
+                <View style={[styles.check, isPicked && styles.checkOn]}>{isPicked && <Text style={styles.checkMark}>✓</Text>}</View>
+              )}
+            </Pressable>
+          );
+        }}
       />
+      {renderBar && <View style={styles.bar}>{renderBar({ items, selected: pickedItems, selecting, endSelecting, helpers })}</View>}
 
       {selected && (
         <View style={styles.sheet}>
           <Image source={{ uri: selected.previewUrl }} placeholder={{ uri: selected.thumbUrl }} contentFit="contain" style={styles.sheetImage} />
           <View style={styles.metaRow}>
-            <Text style={styles.fileName}>{selected.fileName}</Text>
+            <View style={styles.metaText}>
+              <Text style={styles.fileName}>{selected.fileName}</Text>
+              <Text style={styles.meta}>{[captureTime(selected.capturedAt), megabytes(selected.bytes)].filter(Boolean).join(' · ')}</Text>
+              {!!exifLine(selected) && <Text style={styles.meta}>{exifLine(selected)}</Text>}
+            </View>
             <LightroomBadge info={selected.lightroom} />
           </View>
           {selected.lightroom?.error && <Text style={styles.error}>{selected.lightroom.error}</Text>}
@@ -104,15 +207,36 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions }: Prop
 
 const styles = StyleSheet.create({
   root: { flex: 1, padding: 16, gap: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
-  count: { color: colors.muted },
+  subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  headerAction: { color: colors.accent, fontWeight: '600', paddingBottom: 4 },
   thumb: { flex: 1, borderRadius: 6, backgroundColor: colors.card },
-  empty: { color: colors.muted, textAlign: 'center', marginTop: 40 },
+  thumbPicked: { opacity: 0.6, borderWidth: 3, borderColor: colors.accent },
+  check: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  checkMark: { color: '#fff', fontSize: 13, fontWeight: '800', lineHeight: 15 },
+  empty: { color: colors.muted, textAlign: 'center', marginTop: 40, paddingHorizontal: 24, lineHeight: 20 },
+  bar: { gap: 10 },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, backgroundColor: colors.bg, padding: 16, gap: 12 },
   sheetImage: { flex: 1, borderRadius: 12, backgroundColor: colors.card },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  metaText: { flex: 1, gap: 2 },
   fileName: { color: colors.text, fontWeight: '600' },
+  meta: { color: colors.muted, fontSize: 12 },
   error: { color: colors.reject, fontSize: 12 },
-  sheetActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  sheetActions: { gap: 10 },
 });

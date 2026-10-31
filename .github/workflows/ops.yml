@@ -93,7 +93,7 @@ jobs:
             echo "**Receiver** \`${{ steps.outs.outputs.ReceiverIp }}\`: $state"
             echo
             echo "| photos | count |"; echo "|---|---|"
-            for s in unreviewed pick reject; do echo "| $s | $(count byStatus status $s) |"; done
+            for s in unreviewed pick reject sent; do echo "| $s | $(count byStatus status $s) |"; done
             echo
             echo "| Lightroom | count |"; echo "|---|---|"
             for s in queued uploading done duplicate failed; do echo "| $s | $(count byLightroomStatus lightroomStatus $s) |"; done

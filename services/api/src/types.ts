@@ -1,5 +1,13 @@
-export type PhotoStatus = 'unreviewed' | 'pick' | 'reject';
-export const PHOTO_STATUSES: readonly PhotoStatus[] = ['unreviewed', 'pick', 'reject'];
+/**
+ * Where a photo is in the review flow. `sent` means Lightroom has it; the uploader
+ * sets it (and only it) once an upload ends as done or duplicate.
+ */
+export type PhotoStatus = 'unreviewed' | 'pick' | 'reject' | 'sent';
+export const PHOTO_STATUSES: readonly PhotoStatus[] = ['unreviewed', 'pick', 'reject', 'sent'];
+
+/** What a swipe (or a grid action) may set. `sent` is never a decision. */
+export type Decision = Exclude<PhotoStatus, 'sent'>;
+export const DECISIONS: readonly Decision[] = ['unreviewed', 'pick', 'reject'];
 
 /** Where a pick is on its way into the Lightroom cloud catalog. */
 export type LightroomStatus = 'queued' | 'uploading' | 'done' | 'duplicate' | 'failed';
@@ -99,6 +107,19 @@ export interface ReceiverSettings {
 }
 
 export type ReceiverPowerAction = 'start' | 'stop';
+
+/** POST /lightroom/send: queue these picks, or every pick that is not already on its way. */
+export interface SendRequest {
+  photoIds?: string[];
+  all?: boolean;
+}
+
+export interface SendResult {
+  /** Picks now queued (with fresh URLs). */
+  photos: Photo[];
+  /** Ids that were not queued: not a pick, already uploading, or already in Lightroom. */
+  skipped: string[];
+}
 
 export interface ConnectRequest {
   refreshToken: string;

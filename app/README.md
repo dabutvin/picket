@@ -1,9 +1,10 @@
 # app
 
-Expo SDK 58, TypeScript. Three screens behind a plain tab bar:
+Expo SDK 58, TypeScript. Six screens behind a plain tab bar:
 
-- **Review**: swipe deck over `unreviewed` photos. Right/“Pick” → `pick` (and queued for Lightroom), left/“Skip” → `reject`, Undo re-opens the last one. Header shows lifetime counts.
-- **Picks**: grid of `pick` photos with their Lightroom upload state. Tap one to un-pick or retry a failed upload.
+- **Review**: carousel over `unreviewed` photos, oldest first. Swipe left/right to look ahead and go back; flick a photo up (or tap “Pick”) → `pick`, flick down (or “Skip”) → `reject`; Undo puts the last one back where it was. Nothing is uploaded from here. (`src/components/Carousel.tsx` is the pager, `ReviewCard.tsx` the flickable card.)
+- **Picks**: grid of `pick` photos waiting to go to Lightroom. **Send all to Lightroom**, or long-press / “Select” to send or skip a few. Tap one to send it alone, retry a failed upload, skip it, or send it back to Review. Polls while anything is queued or uploading; a photo leaves this tab once Lightroom has it.
+- **Sent**: grid of `sent` photos (in the Lightroom “Picket” album). Read-only.
 - **Skipped**: grid of `reject` photos. Tap one to make it a pick or send it back to Review.
 - **Camera**: the FTP settings the a7C II needs (tap to copy), set/generate the password (the receiver reloads it over SSM), start/stop the receiver.
 - **Settings**: API URL + one-time pairing code (from the deploy summary) → the token lands in SecureStore; and **Connect Lightroom** (Adobe OAuth with PKCE; tokens go to the backend, not the phone).
@@ -11,7 +12,7 @@ Expo SDK 58, TypeScript. Three screens behind a plain tab bar:
 ```bash
 npm install
 npm run typecheck
-npx expo start                      # Review/Picks/Skipped work in Expo Go; Connect Lightroom needs a dev build (adobe+… scheme)
+npx expo start                      # Review/Picks/Sent/Skipped work in Expo Go; Connect Lightroom needs a dev build (adobe+… scheme)
 npx eas-cli build --profile development --platform ios
 ```
 

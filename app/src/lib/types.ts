@@ -1,5 +1,8 @@
 // Mirror of services/api/src/types.ts (the app can't import across packages under Metro).
-export type PhotoStatus = 'unreviewed' | 'pick' | 'reject';
+/** `sent` means Lightroom has it; only the uploader sets it. */
+export type PhotoStatus = 'unreviewed' | 'pick' | 'reject' | 'sent';
+/** What a swipe or a grid action may set. */
+export type Decision = Exclude<PhotoStatus, 'sent'>;
 export type LightroomStatus = 'queued' | 'uploading' | 'done' | 'duplicate' | 'failed';
 
 export interface LightroomInfo {
@@ -69,6 +72,19 @@ export interface ReceiverSettings {
 }
 
 export type ReceiverPowerAction = 'start' | 'stop';
+
+/** POST /lightroom/send: queue these picks, or every pick that is not already on its way. */
+export interface SendRequest {
+  photoIds?: string[];
+  all?: boolean;
+}
+
+export interface SendResult {
+  /** Picks now queued. */
+  photos: Photo[];
+  /** Ids that were not queued: not a pick, already uploading, or already in Lightroom. */
+  skipped: string[];
+}
 
 export interface ConnectRequest {
   refreshToken: string;

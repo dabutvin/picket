@@ -1,8 +1,8 @@
 # picket
 
-Transfer RAW photos from a Sony a7C II wirelessly to AWS, swipe through them on
-your phone to pick keepers, and have the picks uploaded straight into your
-Lightroom cloud catalog. RAW files never touch the phone.
+Transfer RAW photos from a Sony a7C II wirelessly to AWS, flick through them on
+your phone to pick keepers, then send the picks straight into your Lightroom
+cloud catalog in one tap. RAW files never touch the phone.
 
 ```
 camera ──FTPS──▶ receiver (EC2) ──▶ S3 raw/ ──▶ Lambda previews ──▶ DynamoDB ──stream──▶ SQS ──▶ uploader ──▶ Lightroom cloud
@@ -26,7 +26,7 @@ Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits together,
 | `infra/ingest/`     | cloud-init + upload hook for the FTPS receiver              | rendered into the stack  |
 | `services/preview/` | Python Lambda: ARW → embedded-JPEG previews + DynamoDB row  | `pytest`                 |
 | `services/api/`     | Node Lambdas: HTTP API + authorizer, stream router, Lightroom uploader | `npm test`    |
-| `app/`              | Expo app: swipe deck, picks, skipped, camera settings, connect Lightroom | `npm run typecheck` |
+| `app/`              | Expo app: review carousel, picks + send to Lightroom, sent, skipped, camera settings | `npm run typecheck` |
 
 ## Getting started (no terminal)
 
@@ -86,8 +86,8 @@ pure-ftpd and the AWS CLI. Check it with
 
 "Connect Lightroom" returns to the app through Adobe's `adobe+<hash>://` URL
 scheme, which Expo Go doesn't register, so use a development build:
-`npx eas-cli build --profile development --platform ios`. Review, Picks and
-Skipped work in Expo Go.
+`npx eas-cli build --profile development --platform ios`. Review, Picks, Sent
+and Skipped work in Expo Go.
 
 Watch uploads with `aws logs tail /aws/lambda/<Uploader function> --follow`.
 Picks that fail six times land on the dead-letter queue (`UploadDlqUrl` output).

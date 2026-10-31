@@ -13,10 +13,10 @@ function photoStore(initial: PhotoItem[]) {
   return {
     rows,
     get: vi.fn(async (id: string) => rows.get(id)),
-    setLightroom: vi.fn(async (id: string, info: LightroomInfo) => {
+    setLightroom: vi.fn(async (id: string, info: LightroomInfo, status?: PhotoItem['status']) => {
       const p = rows.get(id);
       if (!p) return undefined;
-      const next = { ...p, lightroomStatus: info.status, lightroom: info };
+      const next = { ...p, status: status ?? p.status, lightroomStatus: info.status, lightroom: info };
       rows.set(id, next);
       return next;
     }),
@@ -54,6 +54,7 @@ describe('uploader', () => {
     expect(r.batchItemFailures).toEqual([]);
     const row = store.rows.get('a')!;
     expect(row.lightroom).toMatchObject({ status: 'done', attempts: 1 });
+    expect(row.status).toBe('sent'); // leaves the Picks tab for the Sent tab
     expect(row.lightroom!.assetId).toMatch(/^[0-9a-f]{32}$/);
     const conn = await connections.load();
     expect(conn!.albumId).toMatch(/^[0-9a-f]{32}$/);
@@ -87,6 +88,7 @@ describe('uploader', () => {
     const r = await handle(sqs('a'));
     expect(r.batchItemFailures).toEqual([]);
     expect(store.rows.get('a')!.lightroom).toMatchObject({ status: 'failed', error: 'Lightroom is not connected' });
+    expect(store.rows.get('a')!.status).toBe('pick'); // still a pick: Retry upload is possible
   });
 
   it('records duplicates without uploading', async () => {
@@ -97,6 +99,7 @@ describe('uploader', () => {
     const { store, handle } = make({ fetchFn: fn });
     await handle(sqs('a'));
     expect(store.rows.get('a')!.lightroom).toMatchObject({ status: 'duplicate', albumId: 'alb1' });
+    expect(store.rows.get('a')!.status).toBe('sent');
     expect(calls.some((c) => c.url.endsWith('/master'))).toBe(false);
   });
 

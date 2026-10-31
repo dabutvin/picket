@@ -5,23 +5,36 @@ import type { Api } from '../lib/api';
 import type { Photo, Stats } from '../lib/types';
 import { colors } from '../lib/theme';
 import { Button } from '../components/Button';
-import { SwipeCard, type Decision } from '../components/SwipeCard';
+import { Carousel } from '../components/Carousel';
+import { ReviewCard, type CardDecision } from '../components/ReviewCard';
 
 const PAGE = 30;
 const REFILL_AT = 8;
 const PREFETCH = 3;
 
+/**
+ * First triage. A carousel over `unreviewed` photos, oldest first: swipe left and right to
+ * look ahead and go back, flick a photo up to make it a pick, down to skip it. Picks wait on
+ * the Picks tab until you send them to Lightroom.
+ */
 export function ReviewScreen({ api }: { api: Api }) {
   const [queue, setQueue] = useState<Photo[]>([]);
+  const [index, setIndex] = useState(0);
   const [cursor, setCursor] = useState<string | undefined>();
   const [exhausted, setExhausted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [last, setLast] = useState<{ photo: Photo; decision: Decision } | null>(null);
+  const [last, setLast] = useState<{ photo: Photo; decision: CardDecision; index: number } | null>(null);
   const [decided, setDecided] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
-  const command = useRef<((d: Decision) => void) | null>(null);
+  const command = useRef<((d: CardDecision) => void) | null>(null);
   const loadingRef = useRef(false);
+  // The decision callbacks read the queue through a ref so their identity stays stable
+  // (the active card registers them once per photo).
+  const queueRef = useRef(queue);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
 
   const loadMore = useCallback(
     async (reset = false) => {
@@ -35,6 +48,7 @@ export function ReviewScreen({ api }: { api: Api }) {
           const seen = new Set(reset ? [] : q.map((p) => p.photoId));
           return [...(reset ? [] : q), ...page.items.filter((p) => !seen.has(p.photoId))];
         });
+        if (reset) setIndex(0);
         setCursor(page.cursor);
         setExhausted(!page.cursor);
       } catch (e) {
@@ -58,20 +72,24 @@ export function ReviewScreen({ api }: { api: Api }) {
     api.stats().then(setStats, () => undefined);
   }, [api, decided]);
 
+  // Keep a few pages ahead of the one in view loaded and their previews warm.
   useEffect(() => {
-    if (queue.length < REFILL_AT && !exhausted) void loadMore();
-    const urls = queue.slice(1, 1 + PREFETCH).map((p) => p.previewUrl);
+    if (queue.length - index < REFILL_AT && !exhausted) void loadMore();
+    const urls = [...queue.slice(index + 1, index + 1 + PREFETCH), ...queue.slice(Math.max(0, index - 1), index)].map((p) => p.previewUrl);
     if (urls.length) void Image.prefetch(urls, 'memory-disk');
-  }, [queue, exhausted, loadMore]);
+  }, [queue, index, exhausted, loadMore]);
 
   const onDecision = useCallback(
-    (photo: Photo, decision: Decision) => {
+    (photo: Photo, decision: CardDecision) => {
+      const at = queueRef.current.findIndex((p) => p.photoId === photo.photoId);
+      if (at < 0) return;
+      setLast({ photo, decision, index: at });
       setQueue((q) => q.filter((p) => p.photoId !== photo.photoId));
-      setLast({ photo, decision });
       setDecided((n) => n + 1);
       api.decide(photo.photoId, decision).catch((e: unknown) => {
-        // Put it back at the front so nothing is silently lost.
-        setQueue((q) => [photo, ...q]);
+        // Put it back where it was so nothing is silently lost.
+        setQueue((q) => (q.some((p) => p.photoId === photo.photoId) ? q : [photo, ...q]));
+        setLast(null);
         setDecided((n) => n - 1);
         Alert.alert('Could not save decision', e instanceof Error ? e.message : String(e));
       });
@@ -81,81 +99,87 @@ export function ReviewScreen({ api }: { api: Api }) {
 
   const undo = useCallback(() => {
     if (!last) return;
-    const { photo } = last;
+    const { photo, index: at } = last;
     setLast(null);
-    setQueue((q) => [{ ...photo, status: 'unreviewed' }, ...q]);
+    const next = queueRef.current.filter((p) => p.photoId !== photo.photoId);
+    const slot = Math.min(at, next.length);
+    next.splice(slot, 0, { ...photo, status: 'unreviewed' });
+    setQueue(next);
+    setIndex(slot);
     setDecided((n) => Math.max(0, n - 1));
     api.decide(photo.photoId, 'unreviewed').catch((e: unknown) => {
       Alert.alert('Could not undo', e instanceof Error ? e.message : String(e));
     });
   }, [api, last]);
 
-  const top = queue[0];
-  const next = queue[1];
+  const current = queue[index];
+  const position = queue.length ? `${Math.min(index + 1, queue.length)} of ${queue.length}${exhausted ? '' : '+'}` : '';
+
+  const renderEnd = () => (
+    <View style={styles.end}>
+      {loading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : error ? (
+        <>
+          <Text style={styles.endTitle}>{"Couldn't load photos"}</Text>
+          <Text style={styles.endText}>{error}</Text>
+          <Button title="Retry" onPress={() => void loadMore(true)} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.endTitle}>{queue.length ? "That's everything for now" : 'All caught up'}</Text>
+          <Text style={styles.endText}>
+            {queue.length ? 'Swipe back to revisit a shot, or refresh for anything new.' : 'New shots show up here as the camera uploads them.'}
+          </Text>
+          <Button title="Refresh" onPress={() => void loadMore(true)} />
+        </>
+      )}
+    </View>
+  );
 
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.title}>Review</Text>
-        <Text style={styles.count}>
-          {queue.length}
-          {exhausted ? '' : '+'} left · {decided} this session
-          {stats ? ` · ${stats.photos.pick} picks · ${stats.lightroom.done + stats.lightroom.duplicate} in Lightroom` : ''}
-        </Text>
+        <View>
+          <Text style={styles.title}>Review</Text>
+          <Text style={styles.subtitle}>
+            {decided} this session
+            {stats ? ` · ${stats.photos.pick ?? 0} to send · ${stats.photos.sent ?? 0} in Lightroom` : ''}
+          </Text>
+        </View>
+        <Text style={styles.position}>{position}</Text>
       </View>
 
-      <View style={styles.deck}>
-        {next && (
-          <View style={[styles.under]} pointerEvents="none">
-            <Image source={{ uri: next.previewUrl }} placeholder={{ uri: next.thumbUrl }} contentFit="contain" style={{ flex: 1 }} />
-          </View>
-        )}
-        {top ? (
-          <SwipeCard key={top.photoId} photo={top} onDecision={onDecision} commandRef={command} />
-        ) : loading ? (
-          <ActivityIndicator color={colors.accent} />
-        ) : error ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Couldn't load photos</Text>
-            <Text style={styles.emptyText}>{error}</Text>
-            <Button title="Retry" onPress={() => void loadMore(true)} />
-          </View>
-        ) : (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>All caught up</Text>
-            <Text style={styles.emptyText}>New shots show up here as the camera uploads them.</Text>
-            <Button title="Refresh" onPress={() => void loadMore(true)} />
-          </View>
-        )}
-      </View>
+      <Carousel
+        items={queue}
+        keyOf={(p) => p.photoId}
+        index={index}
+        onIndexChange={setIndex}
+        renderItem={(photo, active) => <ReviewCard photo={photo} active={active} onDecision={onDecision} commandRef={command} />}
+        renderEnd={renderEnd}
+      />
+
+      {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around.</Text>}
 
       <View style={styles.actions}>
-        <Button title="Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!top} style={styles.action} />
+        <Button title="↓ Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
         <Button title="Undo" color={colors.muted} onPress={undo} disabled={!last} />
-        <Button title="Pick" color={colors.pick} onPress={() => command.current?.('pick')} disabled={!top} style={styles.action} />
+        <Button title="↑ Pick" color={colors.pick} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, padding: 16, gap: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  root: { flex: 1, paddingVertical: 12, gap: 12 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 16 },
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
-  count: { color: colors.muted },
-  deck: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  under: {
-    position: 'absolute',
-    inset: 0,
-    transform: [{ scale: 0.96 }],
-    opacity: 0.6,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: colors.card,
-  },
-  actions: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  position: { color: colors.muted, fontVariant: ['tabular-nums'], paddingBottom: 3 },
+  hint: { color: colors.muted, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 },
+  actions: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 16 },
   action: { flex: 1 },
-  empty: { alignItems: 'center', gap: 12, padding: 24 },
-  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  emptyText: { color: colors.muted, textAlign: 'center' },
+  end: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 },
+  endTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  endText: { color: colors.muted, textAlign: 'center' },
 });
