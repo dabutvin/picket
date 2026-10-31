@@ -117,8 +117,10 @@ as a beta user. Enough for one user's own catalog.
 - `lightroomStatus` is separate from `status`. Un-picking after upload does not
   delete anything in Lightroom.
 
-**Consequences.** The phone only ever sees JPEG previews. Delivery is a few
-seconds after the swipe and survives the phone going offline. We depend on
+**Consequences.** The phone only ever sees JPEG previews, and that is also all
+it can keep: *Save to Photos* / *Share…* (from #30) put the 2048 px preview in
+the photo library or the share sheet, never the RAW. Delivery is a few
+seconds after the send and survives the phone going offline. We depend on
 Adobe keeping the credential enabled; development mode caps who can log in
 (fine for one photographer). There is deliberately no API route that hands out
 a RAW download URL; the API role can only presign `previews/` and `thumbs/`.
