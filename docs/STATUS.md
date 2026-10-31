@@ -135,7 +135,7 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
   stating the live failure; CI green first; the owner authorized merging during
   these sessions. Branches `fix/…`, `ops/…`, `docs/…`, `feat/…`.
 - **Harmless leftovers in S3** from the interrupted card dump on Oct 31:
-  `session.db` (the camera's FTP bookkeeping file, no EXIF, no row) and a
+  `session.db` (the camera's FTP bookkeeping file, not a photo) and a
   truncated `DSC03799.ARW` (6.8 MB, the file in flight when the battery died;
   a re-send replaces it as the row's `rawKey`). Earlier uploads of re-sent
   frames also stay in S3 unreferenced. Nothing cleans these up yet.
