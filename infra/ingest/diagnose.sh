@@ -48,9 +48,14 @@ if [ -n "$f" ]; then
   sudo -u ftpcamera env -i PATH="${hook_path:-/usr/bin:/bin}" HOME="${hook_home:-/}" \
     bash -x /usr/local/bin/picket-upload.sh "$f" 2>&1 | tail -n 25 || true
 else
-  echo "no files waiting; testing credentials and a tiny put instead"
+  # Nothing waiting: push a tiny text file through the real hook instead (the preview Lambda
+  # ignores keys that are not .arw). Proves PATH, credentials and the bucket policy together.
+  echo "no files waiting; running the real hook on a throwaway text file instead"
+  tmp="$(mktemp /tmp/picket-diag-XXXXXX.txt)"; echo "picket receiver diagnostic $(date -u +%FT%TZ)" > "$tmp"; chown ftpcamera "$tmp"
   sudo -u ftpcamera env -i PATH="${hook_path:-/usr/bin:/bin}" HOME="${hook_home:-/}" \
-    bash -c 'source /etc/picket.env; command -v aws; aws sts get-caller-identity; echo diag > /tmp/picket-diag.txt; aws s3 cp /tmp/picket-diag.txt "s3://${PICKET_BUCKET}/${PICKET_RAW_PREFIX}_diag/picket-diag.txt"' 2>&1 | tail -n 15 || true
+    bash -x /usr/local/bin/picket-upload.sh "$tmp" 2>&1 | tail -n 25 || true
+  [ -f "$tmp" ] && echo "hook did NOT upload the file (still on disk)" || echo "hook uploaded and removed the file: OK"
+  rm -f "$tmp"
 fi
 
 section "sweep timer"
