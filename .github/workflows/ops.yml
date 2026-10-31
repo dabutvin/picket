@@ -9,9 +9,9 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, migrate-photo-ids, destroy]
       confirm:
-        description: Type "destroy" to confirm the destroy action
+        description: Type "destroy" to confirm the destroy action, or "migrate" to apply migrate-photo-ids (otherwise a dry run)
         required: false
         default: ""
 
@@ -32,12 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs'
+        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs' || inputs.action == 'migrate-photo-ids'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
       - uses: actions/setup-python@v5
-        if: inputs.action == 'destroy'
+        if: inputs.action == 'destroy' || inputs.action == 'migrate-photo-ids'
         with: { python-version: "3.12" }
 
       - name: Pick credential mode
@@ -67,7 +67,7 @@ jobs:
           aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs' > outputs.json
           # Exact key first; else the key with CDK's hash suffix (e.g. LightroomUploadDlqUrlE37DE845 for UploadDlqUrl).
           out() { jq -r --arg k "$1" 'map(select(.OutputKey==$k)) + map(select(.OutputKey|test("^(Lightroom)?"+$k+"[A-F0-9]{8}$"))) | .[0].OutputValue // empty' outputs.json; }
-          for k in ReceiverInstanceId ReceiverIp Table UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl PairingSecret ApiDomainTarget FtpHost; do
+          for k in ReceiverInstanceId ReceiverIp Table Bucket UploadQueueUrl UploadDlqUrl UploaderLogGroup ApiUrl PairingSecret ApiDomainTarget FtpHost; do
             v="$(out $k)"; [ -n "$v" ] || echo "::warning::stack output $k not found"
             echo "$k=$v" >> "$GITHUB_OUTPUT"
           done
@@ -254,6 +254,21 @@ jobs:
             aws sqs receive-message --queue-url "$DLQ" --max-number-of-messages 5 --visibility-timeout 5 --query 'Messages[].Body' --output text
           } 2>&1 | tee report.txt
           { echo "## Lightroom pipeline debug"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Moves photo rows from the legacy id (sha256 of the S3 key) to the current one (file name +
+      # capture time). Dry run by default; type "migrate" in the confirm box to apply.
+      - name: Migrate photo ids
+        if: inputs.action == 'migrate-photo-ids'
+        env:
+          TABLE: ${{ steps.outs.outputs.Table }}
+          BUCKET: ${{ steps.outs.outputs.Bucket }}
+        run: |
+          set -euo pipefail
+          pip install -q boto3
+          args=""
+          if [ "${{ inputs.confirm }}" = "migrate" ]; then args="--apply"; fi
+          python services/preview/migrate_ids.py --table "$TABLE" --bucket "$BUCKET" $args 2>&1 | tee report.txt
+          { echo "## Photo id migration ($( [ -n "$args" ] && echo applied || echo dry run ))"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Destroy
         if: inputs.action == 'destroy'

@@ -63,7 +63,7 @@ An S3 `ObjectCreated` notification on `raw/` invokes `services/preview`
 3. reads EXIF (capture time, lens, exposure) with `exifread`,
 4. upserts a `Photos` item with `status = unreviewed`.
 
-`id` is derived deterministically from the raw object key, so re-running is
+`id` is derived deterministically from the file name and EXIF capture time, so re-running is
 idempotent. A re-upload with the same name on the same day replaces previews
 but keeps an existing decision.
 
@@ -115,7 +115,7 @@ DynamoDB table `Photos` (on-demand):
 
 | attribute    | type | notes                                                        |
 |--------------|------|--------------------------------------------------------------|
-| `photoId`    | S    | PK. `sha256(rawKey)[:16]`                                    |
+| `photoId`    | S    | PK. `sha256("FILENAME|capturedAt")[:16]`: the same frame re-sent on another day keeps its row |
 | `status`     | S    | `unreviewed` \| `pick` \| `reject`                            |
 | `capturedAt` | S    | ISO-8601 from EXIF `DateTimeOriginal`; falls back to upload time |
 | `rawKey`     | S    | `raw/2026/10/30/DSC01234.ARW`                                |

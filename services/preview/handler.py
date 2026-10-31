@@ -55,9 +55,12 @@ def table():
 # --------------------------------------------------------------------------- pure helpers
 
 
-def derive_photo_id(raw_key: str) -> str:
-    """Stable id for a raw object key, so reprocessing is idempotent."""
-    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+def derive_photo_id(file_name: str, captured_at: str) -> str:
+    """Identity of a frame: the camera's file name plus the capture time, exactly as stored on the
+    row. Independent of the S3 key (which carries the upload date), so a file the camera re-sends
+    on another day lands on the same row and keeps its review decision. Mirrored in
+    migrate_ids.py; change both together."""
+    return hashlib.sha256(f"{file_name.upper()}|{captured_at}".encode("utf-8")).hexdigest()[:16]
 
 
 def extract_embedded_jpeg(path: str) -> bytes:
@@ -151,16 +154,18 @@ def read_exif(path: str) -> dict[str, Any]:
 
 
 def process_object(bucket: str, key: str, uploaded_at: str, size: int | None) -> dict[str, Any]:
-    photo_id = derive_photo_id(key)
     file_name = key.rsplit("/", 1)[-1]
-    preview_key = f"{PREVIEW_PREFIX}{photo_id}.jpg"
-    thumb_key = f"{THUMB_PREFIX}{photo_id}.jpg"
 
     with tempfile.NamedTemporaryFile(suffix=".arw", dir="/tmp", delete=True) as tmp:
         s3().download_fileobj(bucket, key, tmp)
         tmp.flush()
         embedded = extract_embedded_jpeg(tmp.name)
         exif = read_exif(tmp.name)
+
+    captured_at = exif.get("capturedAt") or uploaded_at
+    photo_id = derive_photo_id(file_name, captured_at)
+    preview_key = f"{PREVIEW_PREFIX}{photo_id}.jpg"
+    thumb_key = f"{THUMB_PREFIX}{photo_id}.jpg"
 
     r = build_renditions(embedded)
     for k, body in ((preview_key, r.preview), (thumb_key, r.thumb)):
@@ -177,7 +182,7 @@ def process_object(bucket: str, key: str, uploaded_at: str, size: int | None) ->
         "width": r.width,
         "height": r.height,
         "uploadedAt": uploaded_at,
-        "capturedAt": exif.get("capturedAt") or uploaded_at,
+        "capturedAt": captured_at,
         "processedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
     }
     if size is not None:

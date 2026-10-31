@@ -69,6 +69,7 @@ couple of minutes. Running it when nothing changed is harmless.
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
 | `receiver-logs` | health report from the instance over Session Manager: cloud-init result, pure-ftpd state and log, certificate in use, Picket log lines. First stop when the camera can't connect. |
 | `lightroom-debug` | the pick → Lightroom pipeline in one log: queue depths, every photo by Lightroom status, router and uploader CloudWatch events, a peek at the dead-letter queue. First stop when a pick sticks on Queued or Failed. |
+| `migrate-photo-ids` | one-off: moves rows from the legacy photo id (hash of the S3 key, which carried the upload date) to the current one (file name + capture time). Dry run unless the confirm box says `migrate`. Needed once after #23; harmless to re-run. |
 | `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
 | `receiver-start` / `receiver-stop` | start or stop the FTPS instance. Stopped, it costs nothing but the Elastic IP (~$3.65/mo) and the camera settings stay valid. Stop it between trips. |
 | `reload-ftp-password` | force the receiver to re-read the camera password (the app does this itself after a change; this is the manual fallback) |
@@ -189,6 +190,11 @@ Known limits:
   needs a one-time beta review). TestFlight builds expire after 90 days; run
   `build` again. Switching between `preview` and `production` regenerates the
   provisioning profile each time, which is automatic and harmless.
+- **Re-sending files from the camera** (failed transfers, a second card dump):
+  safe at any time. A photo's identity is its file name plus capture time, so a
+  re-sent file lands on the same row and keeps its swipe; only the newest RAW
+  object is referenced (an earlier upload of the same frame stays in S3 unused).
+  On the camera: FTP Transfer → Transfer Status → *Only Failed Transfer*.
 - **New iPhone**: `app-build → register-device`, enroll, approve, then
   `app-build → build`. The profile is recreated with the new device list.
 - **iOS build fails on signing**: the `iOS signing` step's summary shows which
