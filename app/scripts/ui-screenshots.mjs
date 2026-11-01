@@ -116,24 +116,25 @@ await settle(2200);
 await shot('06b-picks-uploading', 'Picks: a moment later (uploading, with spinners)');
 await settle(4500);
 await shot('06c-picks-sent', 'Picks: everything sent (notice stays a few seconds)');
-await byId('tab-sent').click();
+await byId('tab-library').click();
 await settle(1500);
-await shot('07-sent', 'Sent: everything Lightroom has');
-await byId('tab-skipped').click();
+await shot('07-library-sent', 'Library → Sent: everything Lightroom has');
+await byId('library-skipped').click();
 await settle(1500);
-await shot('08-skipped', 'Skipped');
-await byId('tab-camera').click();
-await settle(800);
-await shot('09-camera', 'Camera: receiver settings');
+await shot('08-library-skipped', 'Library → Skipped');
 await byId('tab-settings').click();
-await settle(800);
-await shot('10-settings', 'Settings (sample-photos mode)');
+await settle(1200);
+await shot('09-settings', 'Settings: camera / receiver settings at the top (sample-photos mode)');
+await page.getByText('Picket API', { exact: true }).scrollIntoViewIfNeeded();
+await settle(600);
+await shot('10-settings-lower', 'Settings, scrolled: Lightroom and the Picket API');
 
 // Expired signed URLs: Skipped starts with dead thumbnail URLs (the app saves none to disk, and the
 // ones it has expire within the hour). Each failed thumbnail asks for a fresh URL; all must load.
 await page.goto(`${base}?expired-urls`, { waitUntil: 'domcontentloaded' });
-await byId('tab-skipped').waitFor({ timeout: 30_000 });
-await byId('tab-skipped').click();
+await byId('tab-library').waitFor({ timeout: 30_000 });
+await byId('tab-library').click();
+await byId('library-skipped').click();
 await settle(3500);
 const thumbs = await page.$$eval('[data-testid^="thumb-"] img', (imgs) =>
   imgs.slice(0, 12).map((i) => ({ src: i.currentSrc || i.src, ok: i.complete && i.naturalWidth > 0 })),
@@ -141,14 +142,15 @@ const thumbs = await page.$$eval('[data-testid^="thumb-"] img', (imgs) =>
 if (thumbs.length < 12 || thumbs.some((t) => !t.ok || t.src.includes('picket.invalid'))) {
   throw new Error(`thumbnails with expired URLs were not refreshed: ${JSON.stringify(thumbs)}`);
 }
-await shot('08b-skipped-urls-refreshed', 'Skipped: thumbnails whose signed URLs had expired, re-signed on demand and loaded');
+await shot('08b-skipped-urls-refreshed', 'Library → Skipped: thumbnails whose signed URLs had expired, re-signed on demand and loaded');
 
 // An API without the change feed (deployed before it, or rolled back): tabs must still fill by
 // full loads. Sample mode answers /photos/changes with a 404 under ?no-feed.
 await page.goto(`${base}?no-feed`, { waitUntil: 'domcontentloaded' });
-await byId('tab-skipped').waitFor({ timeout: 30_000 });
-await byId('tab-skipped').click();
-await page.getByText('242', { exact: true }).waitFor({ timeout: 10_000 });
+await byId('tab-library').waitFor({ timeout: 30_000 });
+await byId('tab-library').click();
+await byId('library-skipped').click();
+await page.getByText('242 skipped', { exact: true }).waitFor({ timeout: 10_000 });
 
 fs.writeFileSync(path.join(outDir, 'index.json'), JSON.stringify(shots, null, 2));
 await browser.close();

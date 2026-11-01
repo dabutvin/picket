@@ -152,6 +152,7 @@ export function PicksScreen({ api }: { api: Api }) {
                 <Button
                   title={busy ? 'Sending…' : sendable.length ? `Send ${sendable.length} to Lightroom` : 'Select photos to send'}
                   color={colors.accent}
+                  variant="filled"
                   style={styles.grow}
                   disabled={busy || !sendable.length}
                   onPress={() => void sendPhotos(sendable, helpers).then(endSelecting)}
@@ -170,6 +171,7 @@ export function PicksScreen({ api }: { api: Api }) {
                 <Button
                   title={busy ? 'Sending…' : waiting ? `Send all ${waiting} to Lightroom` : 'Everything is on its way'}
                   color={colors.accent}
+                  variant="filled"
                   disabled={busy || !waiting}
                   onPress={() => void sendAll(items, helpers)}
                   testID="picks-send-all"
@@ -188,6 +190,7 @@ export function PicksScreen({ api }: { api: Api }) {
             <Button
               title={sendTitle}
               color={colors.accent}
+              variant="filled"
               disabled={lr === 'uploading'}
               onPress={() => {
                 helpers.replace(queuedNow(photo));

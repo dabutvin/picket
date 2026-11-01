@@ -7,6 +7,7 @@ import type { LightroomStatusView } from '../lib/types';
 import { loginToAdobe } from '../lib/adobeAuth';
 import { clearAll as clearPhotoCache } from '../lib/photoStore';
 import { Button } from '../components/Button';
+import { CameraSection } from './CameraSection';
 
 interface Props {
   initial: Settings | null;
@@ -101,39 +102,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
         </View>
       )}
 
-      <Text style={styles.section}>Picket API</Text>
-      <Text style={styles.help}>
-        The deploy workflow's summary shows the <Text style={styles.code}>ApiUrl</Text> and a one-time pairing code.
-        {initial ? ' Paired. Enter a new code only to re-pair.' : ''}
-      </Text>
-      <Text style={styles.label}>API URL</Text>
-      <TextInput
-        value={apiUrl}
-        onChangeText={setApiUrl}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        placeholder="https://api.picket.photos"
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-      />
-      <Text style={styles.label}>Pairing code</Text>
-      <TextInput
-        value={code}
-        onChangeText={setCode}
-        autoCapitalize="characters"
-        autoCorrect={false}
-        placeholder="XXXX-XXXX"
-        placeholderTextColor={colors.muted}
-        style={[styles.input, styles.mono]}
-      />
-      <Button title={testing ? 'Pairing…' : initial ? 'Save' : 'Pair'} onPress={() => void save()} disabled={testing} />
-      {!demo && !initial && (
-        <>
-          <Text style={[styles.help, { textAlign: 'center' }]}>Not paired yet? Try the app with sample photos.</Text>
-          <Button title="Try with sample photos" color={colors.muted} onPress={() => onDemo(true)} testID="demo-enter" />
-        </>
-      )}
+      {api && <CameraSection api={api} />}
 
       {api && (
         <>
@@ -165,12 +134,47 @@ export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
               )}
               <Button
                 title={lrBusy ? 'Waiting for Adobe…' : 'Connect Lightroom'}
+                variant="filled"
                 onPress={() => void connect()}
                 disabled={lrBusy || !lr.oauth.clientId || !lr.oauth.redirectUri}
               />
               <Text style={styles.fine}>Redirect URI: {lr.oauth.redirectUri || '(not configured)'}</Text>
             </View>
           )}
+        </>
+      )}
+
+      <Text style={styles.section}>Picket API</Text>
+      <Text style={styles.help}>
+        The deploy workflow's summary shows the <Text style={styles.code}>ApiUrl</Text> and a one-time pairing code.
+        {initial ? ' Paired. Enter a new code only to re-pair.' : ''}
+      </Text>
+      <Text style={styles.label}>API URL</Text>
+      <TextInput
+        value={apiUrl}
+        onChangeText={setApiUrl}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        placeholder="https://api.picket.photos"
+        placeholderTextColor={colors.muted}
+        style={styles.input}
+      />
+      <Text style={styles.label}>Pairing code</Text>
+      <TextInput
+        value={code}
+        onChangeText={setCode}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        placeholder="XXXX-XXXX"
+        placeholderTextColor={colors.muted}
+        style={[styles.input, styles.mono]}
+      />
+      <Button title={testing ? 'Pairing…' : initial ? 'Save' : 'Pair'} variant={initial || demo ? 'tinted' : 'filled'} onPress={() => void save()} disabled={testing} />
+      {!demo && !initial && (
+        <>
+          <Text style={[styles.help, { textAlign: 'center' }]}>Not paired yet? Try the app with sample photos.</Text>
+          <Button title="Try with sample photos" color={colors.muted} onPress={() => onDemo(true)} testID="demo-enter" />
         </>
       )}
 
