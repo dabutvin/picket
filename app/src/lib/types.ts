@@ -21,6 +21,8 @@ export interface Photo {
   uploadedAt: string;
   /** Set each time the preview Lambda (re)writes the previews; versions the image cache key. */
   processedAt?: string;
+  /** When the row last changed (any write); orders the change feed. */
+  changedAt?: string;
   decidedAt?: string;
   rawKey: string;
   fileName: string;
@@ -43,6 +45,19 @@ export interface Photo {
 export interface PhotoPage {
   items: Photo[];
   cursor?: string;
+}
+
+/** GET /photos/changes: rows changed after `since`, oldest change first. */
+export interface ChangesPage {
+  items: Photo[];
+  cursor?: string;
+  /** Server time taken before the query; the next call's `since` (minus an overlap). */
+  until: string;
+}
+
+/** POST /photos/urls: fresh signed URLs for photos whose cached ones expired. */
+export interface UrlsResult {
+  photos: Record<string, { thumbUrl: string; previewUrl: string }>;
 }
 
 export interface Stats {

@@ -26,6 +26,12 @@ export const fakeStore = (): Store => ({
     return { items: [item('a', status), item('b', status)].slice(0, limit), cursor: limit < 2 ? 'next' : undefined };
   }),
   get: vi.fn(async (id) => (id === 'a' ? item('a') : undefined)),
+  getMany: vi.fn(async (ids: string[]) => ids.filter((id) => id === 'a' || id === 'b').map((id) => item(id))),
+  listChanges: vi.fn(async (_since: string, limit: number, cursor?: string) => {
+    if (cursor === 'bad') throw new BadCursor();
+    const all = [item('a', 'reject', { changedAt: '2026-11-01T10:00:00.000Z' }), item('b', 'sent', { changedAt: '2026-11-01T10:05:00.000Z' })];
+    return { items: all.slice(0, limit), cursor: limit < all.length ? 'next' : undefined };
+  }),
   setStatus: vi.fn(async (id, status) => (id === 'a' ? item('a', status) : undefined)),
   setLightroom: vi.fn(async (id, info, status) => (id === 'a' ? item('a', status ?? 'pick', { lightroomStatus: info.status, lightroom: info }) : undefined)),
   queueLightroom: vi.fn(async (id) => (id === 'a' ? item('a', 'pick', { lightroomStatus: 'queued' }) : undefined)),

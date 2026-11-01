@@ -1,4 +1,5 @@
 import type {
+  ChangesPage,
   ConnectRequest,
   Decision,
   LightroomStatusView,
@@ -10,6 +11,7 @@ import type {
   SendRequest,
   SendResult,
   Stats,
+  UrlsResult,
 } from './types';
 import type { Settings } from './settings';
 
@@ -26,6 +28,10 @@ export interface Api {
   /** Names this backend's on-device cache (the API URL; "demo" for sample photos, which is never saved). */
   readonly cacheId: string;
   list(status: PhotoStatus, limit?: number, cursor?: string): Promise<PhotoPage>;
+  /** Rows changed after `since` (any tab), 100 per page; without `since`, just the server time to start from. */
+  changes(since?: string, cursor?: string): Promise<ChangesPage>;
+  /** Fresh signed thumb/preview URLs for up to 100 photos. */
+  urls(photoIds: string[]): Promise<UrlsResult>;
   decide(photoId: string, decision: Decision): Promise<Photo>;
   /** Send one pick to Lightroom, or retry / nudge one that failed or is stuck on queued. */
   sendOne(photoId: string): Promise<Photo>;
@@ -84,6 +90,13 @@ export function createApi({ apiUrl, token }: Settings): Api {
       if (cursor) q.set('cursor', cursor);
       return call<PhotoPage>(`/photos?${q}`);
     },
+    changes(since, cursor) {
+      const q = new URLSearchParams();
+      if (since) q.set('since', since);
+      if (cursor) q.set('cursor', cursor);
+      return call<ChangesPage>(`/photos/changes?${q}`);
+    },
+    urls: (photoIds) => post<UrlsResult>('/photos/urls', { photoIds }),
     decide: (photoId, decision) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/decision`, { decision }),
     sendOne: (photoId) => post<Photo>(`/photos/${encodeURIComponent(photoId)}/lightroom`),
     sendMany: (req) => post<SendResult>('/lightroom/send', req),

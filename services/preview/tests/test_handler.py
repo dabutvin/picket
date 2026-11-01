@@ -1,3 +1,4 @@
+import re
 import io
 from unittest import mock
 
@@ -102,3 +103,33 @@ def test_process_object_upserts_without_clobbering_status(sample_arw):
     assert upd["Key"] == {"photoId": item["photoId"]}
     assert "if_not_exists(#st, :unreviewed)" in upd["UpdateExpression"]
     assert upd["ExpressionAttributeValues"][":unreviewed"] == "unreviewed"
+
+
+def test_js_iso_matches_javascript_to_iso_string():
+    from datetime import datetime, timedelta, timezone
+
+    t = datetime(2026, 11, 1, 16, 20, 5, 123456, tzinfo=timezone.utc)
+    assert handler.js_iso(t) == "2026-11-01T16:20:05.123Z"
+    # Any zone is converted to UTC first, as toISOString() does.
+    assert handler.js_iso(t.astimezone(timezone(timedelta(hours=-7)))) == "2026-11-01T16:20:05.123Z"
+    assert handler.js_iso(datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)) == "2026-01-02T03:04:05.000Z"
+
+
+def test_process_object_stamps_the_change_feed():
+    """Offline: RAW decoding is stubbed, so this runs in CI (PICKET_OFFLINE=1) too."""
+    fake_s3, fake_table = mock.Mock(), mock.Mock()
+    renditions = mock.Mock(preview=b"p", thumb=b"t", width=4000, height=3000)
+    with (
+        mock.patch.object(handler, "s3", return_value=fake_s3),
+        mock.patch.object(handler, "table", return_value=fake_table),
+        mock.patch.object(handler, "extract_embedded_jpeg", return_value=b"jpeg"),
+        mock.patch.object(handler, "read_exif", return_value={"capturedAt": "2026-10-30T18:02:11"}),
+        mock.patch.object(handler, "build_renditions", return_value=renditions),
+    ):
+        handler.process_object("bucket", "raw/2026/10/30/DSC00001.ARW", "2026-10-30T18:05:00Z", 1000)
+
+    upd = fake_table.update_item.call_args.kwargs
+    written = {name: upd["ExpressionAttributeValues"][":" + ph[1:]] for ph, name in upd["ExpressionAttributeNames"].items() if ph != "#st"}
+    assert written["feed"] == "photos"
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", written["changedAt"])
+    assert "if_not_exists(#st, :unreviewed)" in upd["UpdateExpression"]  # a decision survives re-processing

@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { LightroomInfo, LightroomStatus, PhotoItem, PhotoStatus } from './types.js';
@@ -7,6 +7,10 @@ import type { LightroomInfo, LightroomStatus, PhotoItem, PhotoStatus } from './t
 export interface Store {
   listByStatus(status: PhotoStatus, limit: number, cursor?: string): Promise<{ items: PhotoItem[]; cursor?: string }>;
   get(photoId: string): Promise<PhotoItem | undefined>;
+  /** Up to 100 rows by id; missing ids are left out. */
+  getMany(photoIds: string[]): Promise<PhotoItem[]>;
+  /** Rows whose changedAt is after `since`, oldest change first (the byChange index). */
+  listChanges(since: string, limit: number, cursor?: string): Promise<{ items: PhotoItem[]; cursor?: string }>;
   /** Flip the review decision (or, from the uploader, mark a pick as sent). Never queues anything. */
   setStatus(photoId: string, status: PhotoStatus): Promise<PhotoItem | undefined>;
   /** Record progress of the Lightroom upload; `status` moves the photo along with it (pick → sent). */
@@ -26,8 +30,20 @@ export interface StoreConfig {
   tableName: string;
   statusIndex: string;
   lightroomIndex: string;
+  /** Defaults to byChange. */
+  changeIndex?: string;
   bucket: string;
 }
+
+/** Partition key of the byChange index: every row shares it (one user, a few writes a minute). */
+export const FEED = 'photos';
+
+/** Appended to every row write so the row shows up in the change feed. */
+const stamp = (now = new Date()) => ({
+  expr: ', #ch = :ch, #fd = :fd',
+  names: { '#ch': 'changedAt', '#fd': 'feed' },
+  values: { ':ch': now.toISOString(), ':fd': FEED },
+});
 
 export const encodeCursor = (key: Record<string, unknown> | undefined): string | undefined =>
   key ? Buffer.from(JSON.stringify(key), 'utf8').toString('base64url') : undefined;
@@ -131,28 +147,65 @@ export function createStore(cfg: StoreConfig, clients: { ddb?: DynamoDBDocumentC
       return res.Item as PhotoItem | undefined;
     },
 
+    async getMany(photoIds) {
+      let keys: Record<string, unknown>[] = [...new Set(photoIds)].map((photoId) => ({ photoId }));
+      const out: PhotoItem[] = [];
+      // BatchGet may hand some keys back unprocessed under load; a few retries is plenty for 100.
+      for (let attempt = 0; keys.length > 0 && attempt < 4; attempt++) {
+        const res = await ddb.send(new BatchGetCommand({ RequestItems: { [cfg.tableName]: { Keys: keys } } }));
+        out.push(...((res.Responses?.[cfg.tableName] ?? []) as PhotoItem[]));
+        keys = (res.UnprocessedKeys?.[cfg.tableName]?.Keys ?? []) as Record<string, unknown>[];
+      }
+      return out;
+    },
+
+    async listChanges(since, limit, cursor) {
+      const res = await ddb.send(
+        new QueryCommand({
+          TableName: cfg.tableName,
+          IndexName: cfg.changeIndex ?? 'byChange',
+          KeyConditionExpression: '#fd = :fd AND #ch > :since',
+          ExpressionAttributeNames: { '#fd': 'feed', '#ch': 'changedAt' },
+          ExpressionAttributeValues: { ':fd': FEED, ':since': since },
+          ScanIndexForward: true,
+          Limit: limit,
+          ExclusiveStartKey: decodeCursor(cursor),
+        }),
+      );
+      return { items: (res.Items ?? []) as PhotoItem[], cursor: encodeCursor(res.LastEvaluatedKey) };
+    },
+
     setStatus(photoId, status) {
       // Picking no longer queues anything: the Picks screen sends to Lightroom explicitly.
       // A photo that already went to Lightroom keeps its lightroom record whatever happens here.
-      return update(photoId, 'SET #s = :s, decidedAt = :t', { '#s': 'status' }, { ':s': status, ':t': new Date().toISOString() });
+      const now = new Date();
+      const c = stamp(now);
+      return update(photoId, 'SET #s = :s, decidedAt = :t' + c.expr, { '#s': 'status', ...c.names }, { ':s': status, ':t': now.toISOString(), ...c.values });
     },
 
     setLightroom(photoId, info, status) {
+      const c = stamp();
       if (status) {
-        return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr, #s = :s', { '#s': 'status' }, { ':st': info.status, ':lr': info, ':s': status });
+        return update(
+          photoId,
+          'SET lightroomStatus = :st, lightroom = :lr, #s = :s' + c.expr,
+          { '#s': 'status', ...c.names },
+          { ':st': info.status, ':lr': info, ':s': status, ...c.values },
+        );
       }
-      return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr', {}, { ':st': info.status, ':lr': info });
+      return update(photoId, 'SET lightroomStatus = :st, lightroom = :lr' + c.expr, c.names, { ':st': info.status, ':lr': info, ...c.values });
     },
 
     queueLightroom(photoId) {
       const info = queuedInfo();
+      const c = stamp();
       // Already queued is allowed: the bumped updatedAt makes the router re-send the message
       // (recovery for a pick stuck on Queued). Uploading / done / duplicate are left alone.
       return update(
         photoId,
-        'SET lightroomStatus = :st, lightroom = :lr',
-        { '#s': 'status' },
-        { ':st': info.status, ':lr': info, ':pick': 'pick', ':failed': 'failed' },
+        'SET lightroomStatus = :st, lightroom = :lr' + c.expr,
+        { '#s': 'status', ...c.names },
+        { ':st': info.status, ':lr': info, ':pick': 'pick', ':failed': 'failed', ...c.values },
         'attribute_exists(photoId) AND #s = :pick AND (attribute_not_exists(lightroomStatus) OR lightroomStatus IN (:st, :failed))',
       );
     },

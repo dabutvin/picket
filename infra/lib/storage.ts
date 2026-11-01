@@ -62,6 +62,16 @@ export class Storage extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // The app's incremental sync: every row write stamps changedAt (and feed = "photos"), so
+    // "what changed since T" is one query. Sparse: rows untouched since this index was added
+    // have neither attribute, and a client's first full load already holds them.
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'byChange',
+      partitionKey: { name: 'feed', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'changedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Sparse index: only rows that have been queued for Lightroom carry lightroomStatus.
     this.table.addGlobalSecondaryIndex({
       indexName: 'byLightroomStatus',

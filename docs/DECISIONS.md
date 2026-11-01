@@ -202,3 +202,33 @@ photos carry it), and the `byLightroomStatus` index now counts only photos
 that were actually sent. A photo in Sent is read-only in the app; un-picking
 or skipping it would not remove it from Lightroom, so the app does not offer
 that.
+
+## ADR-009: The app keeps whole tabs on the phone and stays current from a change feed
+
+**Context.** Skipped, and over time Sent, grow into the thousands of photos. A tab that loads
+from the API each time it opens is slow and heavy at that size: 100 photos per call, and each
+photo carries two presigned URLs of over a kilobyte (the Lambda's session token is in every
+signature), so a full reload of 10,000 photos is about 30 MB over 100 requests. Photos never
+change in place and are never deleted; what changes is which tab a photo is in, its Lightroom
+state, and rarely its previews (a re-sent frame).
+
+**Decision.**
+- Every row write stamps `changedAt` (JavaScript `toISOString()` format, also from the Python
+  preview Lambda) and `feed = "photos"`. A sparse GSI `byChange` (PK `feed`, SK `changedAt`)
+  makes "everything changed since T" one query: `GET /photos/changes?since=`. One partition key
+  for every row is fine for one user writing a few rows a minute.
+- The app (`app/src/lib/photoStore.ts`) loads each grid tab in full once, then only applies the
+  feed: each changed row is moved to the tab its status names. It asks from two minutes before
+  the last answer because the index can trail a write; applying a row twice is harmless. The
+  feed position is anchored before the first full load, so nothing written during it is missed.
+- Signed URLs are not saved on the phone. Thumbnails load from expo-image's disk cache under a
+  stable key (`thumbKey@processedAt`); one that is not cached and has no live URL fails, and
+  its `onError` asks `POST /photos/urls` to sign that photo (batched).
+- No backfill: rows untouched since the index was added are not in it, and a first full load
+  already holds them; every later write puts a row in.
+
+**Consequences.** A routine refresh is one small request at any size, so the app refreshes on
+launch, on returning to the foreground, on every tab open and every 2.5 s during a send, and
+changes from another phone (Elise's) show up within seconds. The saved lists are metadata only,
+about 0.4 KB a photo. Pull-to-refresh still reloads a tab in full, as a safety valve. A sign-out
+or a cache-format change costs one full load per tab.

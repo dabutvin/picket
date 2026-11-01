@@ -17,6 +17,8 @@ import {
   type PhotoItem,
   type PhotoPage,
   type PhotoStatus,
+  type ChangesPage,
+  type UrlsResult,
   type SendRequest,
   type SendResult,
   type Stats,
@@ -103,6 +105,45 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
     }
     const body: PhotoPage = { items: await Promise.all(items.map(withUrls)), cursor: page.cursor };
     return json(200, body);
+  }
+
+  /**
+   * The app's incremental sync: rows changed after `since`. Photos never change in place and are
+   * never deleted, so a client holding a full list stays current by applying this feed. `until`
+   * is taken before the query; the client asks again from a little before it, because the index
+   * can trail a write by a moment.
+   */
+  async function listChanges(event: APIGatewayProxyEventV2): Promise<Result> {
+    const q = event.queryStringParameters ?? {};
+    const until = new Date().toISOString();
+    if (!q.since) return json(200, { items: [], until } satisfies ChangesPage);
+    if (Number.isNaN(Date.parse(q.since))) return error(400, 'since must be an ISO-8601 time');
+    const since = new Date(q.since).toISOString(); // the same format changedAt is written in
+    const limitRaw = q.limit === undefined ? MAX_LIMIT : Number(q.limit);
+    if (!Number.isInteger(limitRaw) || limitRaw < 1) return error(400, 'limit must be a positive integer');
+    let page;
+    try {
+      page = await store.listChanges(since, Math.min(limitRaw, MAX_LIMIT), q.cursor);
+    } catch (err) {
+      if (err instanceof BadCursor) return error(400, 'invalid cursor');
+      throw err;
+    }
+    const body: ChangesPage = { items: await Promise.all(page.items.map(withUrls)), cursor: page.cursor, until };
+    return json(200, body);
+  }
+
+  /** Fresh signed URLs for photos the app already has (its cached ones expire within the hour). */
+  async function photoUrls(event: APIGatewayProxyEventV2): Promise<Result> {
+    const body = parseBody<{ photoIds?: unknown }>(event);
+    if (!body) return error(400, 'body must be JSON');
+    if (!Array.isArray(body.photoIds) || !body.photoIds.every((v) => typeof v === 'string' && v.length > 0)) {
+      return error(400, 'photoIds must be an array of ids');
+    }
+    if (body.photoIds.length > MAX_LIMIT) return error(400, `at most ${MAX_LIMIT} photoIds per call`);
+    const rows = await store.getMany(body.photoIds as string[]);
+    const result: UrlsResult = { photos: {} };
+    for (const p of await Promise.all(rows.map(withUrls))) result.photos[p.photoId] = { thumbUrl: p.thumbUrl, previewUrl: p.previewUrl };
+    return json(200, result);
   }
 
   async function decide(event: APIGatewayProxyEventV2): Promise<Result> {
@@ -315,6 +356,10 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
           return await receiverPower(event);
         case 'GET /photos':
           return await listPhotos(event);
+        case 'GET /photos/changes':
+          return await listChanges(event);
+        case 'POST /photos/urls':
+          return await photoUrls(event);
         case 'POST /photos/{id}/decision':
           return await decide(event);
         case 'POST /photos/{id}/lightroom':

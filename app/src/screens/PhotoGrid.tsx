@@ -8,7 +8,7 @@ import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
 import { withRecent } from '../lib/recent';
-import { hydrate, imageKey, isStale, patch, peek, subscribe, sync, type Snapshot } from '../lib/photoStore';
+import { hydrate, imageKey, needUrls, patch, peek, refresh, refreshSoon, subscribe, type Snapshot } from '../lib/photoStore';
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
 import { ZoomableImage } from '../components/ZoomableImage';
@@ -86,23 +86,24 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const complete = snap?.complete ?? false;
   const loading = !snap || (snap.syncing && snap.items.length === 0);
 
+  /** Apply the change feed (`soon`: unless one just ran; `full`: reload this tab in full first). */
   const syncNow = useCallback(
-    (quiet: boolean) =>
-      sync(api, status).catch((e: unknown) => {
+    (quiet: boolean, how: 'soon' | 'now' | 'full' = 'now') =>
+      (how === 'soon' ? refreshSoon(api, [status]) : refresh(api, [status], { full: how === 'full' })).catch((e: unknown) => {
         if (!quiet) Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
       }),
     [api, status, title],
   );
 
-  // Open from the cache (memory, else disk) and sync behind it when it is stale.
+  // Open from the cache (memory, else disk) and apply the change feed behind it.
   useEffect(() => {
     let alive = true;
     const unsubscribe = subscribe(api, status, (s) => alive && setSnap(s));
-    void hydrate(api, status).then(() => {
+    void hydrate(api).then(() => {
       if (!alive) return;
       setSnap(peek(api, status));
       // Quiet when there is a list to show: a failed background refresh should not interrupt it.
-      if (isStale(api, status)) void syncNow(!!peek(api, status)?.items.length);
+      void syncNow(!!peek(api, status)?.items.length, 'soon');
     });
     return () => {
       alive = false;
@@ -206,6 +207,8 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const countKnown = complete || total !== null;
   const count = complete ? items.length : Math.max(total ?? 0, items.length);
   const pickedItems = items.filter((p) => picked.has(p.photoId));
+  // The detail view shows the store's current copy, so a refreshed URL reaches it.
+  const shown = selected ? (items.find((p) => p.photoId === selected.photoId) ?? selected) : null;
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -234,7 +237,11 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         style={{ width: cell, height: cell }}
         testID={`thumb-${item.photoId}`}
       >
-        <Image source={{ uri: item.thumbUrl, cacheKey: imageKey(item, 'thumb') }} cachePolicy="memory-disk" recyclingKey={item.photoId} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
+        <Image
+          source={{ uri: item.thumbUrl, cacheKey: imageKey(item, 'thumb') }}
+          onError={() => needUrls(api, item)}
+          cachePolicy="memory-disk"
+          recyclingKey={item.photoId} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
         {cellBadges && <LightroomBadge info={item.lightroom} compact />}
         {selecting && <View style={[styles.check, isPicked && styles.checkOn]}>{isPicked && <Text style={styles.checkMark}>✓</Text>}</View>}
       </Pressable>
@@ -285,7 +292,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         contentContainerStyle={styles.list}
         onRefresh={() => {
           setRefreshing(true);
-          void syncNow(false).finally(() => setRefreshing(false));
+          void syncNow(false, 'full').finally(() => setRefreshing(false));
         }}
         refreshing={refreshing}
         // Thousands of photos: render a few rows at a time and drop the ones far off screen.
@@ -299,18 +306,18 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       />
       {renderBar && <View style={styles.bar}>{renderBar({ items, selected: pickedItems, selecting, endSelecting, helpers })}</View>}
 
-      {selected && (
+      {shown && (
         <View style={styles.sheet}>
-          <ZoomableImage uri={selected.previewUrl} cacheKey={imageKey(selected, 'preview')} placeholder={selected.thumbUrl} style={styles.sheetImage} testID="detail-image" />
+          <ZoomableImage uri={shown.previewUrl} cacheKey={imageKey(shown, 'preview')} onError={() => needUrls(api, shown)} placeholder={shown.thumbUrl} style={styles.sheetImage} testID="detail-image" />
           <View style={styles.metaRow}>
             <View style={styles.metaText}>
-              <Text style={styles.fileName}>{selected.fileName}</Text>
-              <Text style={styles.meta}>{[captureTime(selected.capturedAt), megabytes(selected.bytes)].filter(Boolean).join(' · ')}</Text>
-              {!!exifLine(selected) && <Text style={styles.meta}>{exifLine(selected)}</Text>}
+              <Text style={styles.fileName}>{shown.fileName}</Text>
+              <Text style={styles.meta}>{[captureTime(shown.capturedAt), megabytes(shown.bytes)].filter(Boolean).join(' · ')}</Text>
+              {!!exifLine(shown) && <Text style={styles.meta}>{exifLine(shown)}</Text>}
             </View>
-            <LightroomBadge info={selected.lightroom} />
+            <LightroomBadge info={shown.lightroom} />
           </View>
-          {selected.lightroom?.error && <Text style={styles.error}>{selected.lightroom.error}</Text>}
+          {shown.lightroom?.error && <Text style={styles.error}>{shown.lightroom.error}</Text>}
           <View style={styles.exportRow}>
             <Button
               title={exporting === 'save' ? 'Saving…' : exporting === 'saved' ? 'Saved to Photos ✓' : 'Save to Photos'}
@@ -320,7 +327,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
               testID="detail-save"
               onPress={() => {
                 setExporting('save');
-                saveToPhotos(selected).then(
+                saveToPhotos(shown).then(
                   (outcome) => {
                     if (outcome === 'denied') {
                       setExporting(null);
@@ -345,7 +352,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
               testID="detail-share"
               onPress={() => {
                 setExporting('share');
-                sharePreview(selected)
+                sharePreview(shown)
                   .then((ok) => {
                     if (!ok) Alert.alert('Sharing is not available on this device');
                   })
@@ -355,7 +362,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
             />
           </View>
           <Text style={styles.exportNote}>{EXPORT_NOTE}</Text>
-          <View style={styles.sheetActions}>{renderActions(selected, helpers)}</View>
+          <View style={styles.sheetActions}>{renderActions(shown, helpers)}</View>
         </View>
       )}
     </View>

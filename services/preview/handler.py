@@ -153,6 +153,12 @@ def read_exif(path: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- pipeline
 
 
+def js_iso(t: datetime) -> str:
+    """UTC time as JavaScript's Date.toISOString() writes it: 2026-11-01T16:20:00.123Z."""
+    t = t.astimezone(timezone.utc)
+    return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
+
+
 def process_object(bucket: str, key: str, uploaded_at: str, size: int | None) -> dict[str, Any]:
     file_name = key.rsplit("/", 1)[-1]
 
@@ -184,6 +190,10 @@ def process_object(bucket: str, key: str, uploaded_at: str, size: int | None) ->
         "uploadedAt": uploaded_at,
         "capturedAt": captured_at,
         "processedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        # The app's change feed (byChange index): same string format the API writes, so the
+        # two compare correctly as strings.
+        "changedAt": js_iso(datetime.now(timezone.utc)),
+        "feed": "photos",
     }
     if size is not None:
         item["bytes"] = size

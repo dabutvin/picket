@@ -151,6 +151,8 @@ DynamoDB table `Photos` (on-demand):
 | `decidedAt`  | S    | set when status changes                                      |
 | `lightroomStatus` | S | `queued` \| `uploading` \| `done` \| `duplicate` \| `failed`; absent until first sent |
 | `lightroom`  | M    | `{ status, updatedAt, assetId?, albumId?, error?, attempts? }` |
+| `changedAt`  | S    | set on every write (API and preview Lambda) in `toISOString()` format; orders the change feed |
+| `feed`       | S    | always `photos`: the partition key that puts every row in one `byChange` index |
 
 Review decisions and Lightroom delivery are deliberately separate fields:
 "picked" and "in Lightroom" are different questions. `status = sent` is the
@@ -160,7 +162,9 @@ send step existed, uploaded straight from the swipe, are moved to `sent` the
 first time the Picks list is read, so no migration run is needed. Rejecting
 is a label, not a delete; the RAW stays in S3.
 
-GSIs: `byStatus` (PK `status`, SK `capturedAt`) drives the swipe and grid
+GSIs: `byChange` (PK `feed`, SK `changedAt`, all attributes) is the change feed the app's
+on-device cache stays current from (ADR-009); it is sparse, holding only rows written since it
+was added. `byStatus` (PK `status`, SK `capturedAt`) drives the swipe and grid
 screens; `byLightroomStatus` (PK `lightroomStatus`, SK `decidedAt`, keys only)
 drives counts and "what failed". The table streams `NEW_AND_OLD_IMAGES` to the
 router.
@@ -175,6 +179,8 @@ it once by redeeming a short-lived, single-use pairing code. Single user.
 | method | path                        | body / query                        | returns |
 |--------|-----------------------------|-------------------------------------|---------|
 | GET    | `/photos`                   | `status` (default `unreviewed`), `limit` (≤100), `cursor` | `{ items: Photo[], cursor? }` with `previewUrl`/`thumbUrl` presigned (1 h) |
+| GET    | `/photos/changes`           | `since` (ISO time), `limit` (≤100), `cursor` | rows changed after `since`, oldest first: `{ items: Photo[], cursor?, until }`; without `since`, only `until` (the time to start from) |
+| POST   | `/photos/urls`              | `{ photoIds: string[] }` (≤100)     | fresh presigned thumb/preview URLs for existing photos: `{ photos: { [id]: { thumbUrl, previewUrl } } }` |
 | POST   | `/photos/{id}/decision`     | `{ "decision": "pick" \| "reject" \| "unreviewed" }` | updated `Photo`; nothing is queued (`sent` is not accepted) |
 | POST   | `/photos/{id}/lightroom`    |                                     | queues one pick for Lightroom: first send, retry after a failure, or a nudge while queued (409 if not a pick or already uploading/delivered) |
 | POST   | `/lightroom/send`           | `{ photoIds: string[] }` (≤100) or `{ all: true }` | queues those picks (or every pick not already on its way); `{ photos: Photo[], skipped: string[] }` |

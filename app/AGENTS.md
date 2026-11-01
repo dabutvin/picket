@@ -94,13 +94,16 @@ has no device either. So UI work follows a loop that needs neither:
    `Platform.OS === 'web'` guard, or the preview breaks for every later PR.
 
 Data for the grid tabs (Picks, Sent, Skipped) comes from `src/lib/photoStore.ts`, not straight
-from the API: each tab's whole list is cached in memory and in a JSON file, synced 100 at a time
-in the background (`warm()` runs a few seconds after launch), and patched locally on every
-decision. Grids read it through `PhotoGrid`; anything that moves a photo should go through
-`noteDecision` / `notePhoto` in `src/lib/recent.ts`, which update the store too. Thumbnails use
-`imageKey()` as their expo-image `cacheKey`, because the API signs new URLs on every call and
-URL-keyed caching would re-download every thumbnail. Persistence is native only; the web build
-and sample-photos mode keep the cache in memory.
+from the API (ADR-009): each tab is loaded in full once, cached in memory and in a JSON file,
+and kept current by `refresh()`, which applies the API's change feed (`/photos/changes`) to
+every cached tab. It runs a few seconds after launch, on returning to the foreground, on each
+tab open and while a send is in flight; pull-to-refresh reloads the tab in full. Grids read it
+through `PhotoGrid`; anything that moves a photo should go through `noteDecision` /
+`notePhoto` in `src/lib/recent.ts`, which update the store too. Signed URLs are never saved:
+thumbnails use `imageKey()` as their expo-image `cacheKey`, and an image that fails to load
+calls `needUrls()`, which re-signs it through `/photos/urls`. The screenshot script checks that
+path with `?expired-urls` (sample mode hands Skipped dead thumbnail URLs). Persistence is native
+only; the web build and sample-photos mode keep the cache in memory.
 
 Conventions for the UI itself: dark theme only, the four semantic colors in
 `src/lib/theme.ts` (`pick` green, `reject` red, `accent` blue, `muted` grey), `Button` for
