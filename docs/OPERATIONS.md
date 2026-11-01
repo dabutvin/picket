@@ -89,8 +89,9 @@ Four actions, all without a computer or an Apple ID login:
 | `submit` | sends the latest finished `production` iOS build on EAS to TestFlight, for a build made with `testflight` unticked. No rebuild. |
 
 Every push to `main` that changes `app/` also runs `build` on its own (ios,
-`production`, `testflight` off), so each merged app change is built on EAS.
-When one looks good, run `submit` to send the latest to TestFlight.
+`preview`), so each merged app change has a build you install from its EAS
+link (on an enrolled iPhone). When you're ready to ship, run `build` by hand
+with ios / `production` and it goes to TestFlight.
 
 The signing material (private key, certificate, profile) lives in AWS Secrets
 Manager under `picket/apple-signing`, so every build reuses it; nothing is
