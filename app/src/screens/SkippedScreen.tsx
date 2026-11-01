@@ -1,4 +1,5 @@
 import { Alert, StyleSheet, View } from 'react-native';
+import type { ReactNode } from 'react';
 import type { Api } from '../lib/api';
 import { colors } from '../lib/theme';
 import { noteDecision } from '../lib/recent';
@@ -8,13 +9,15 @@ import { PhotoGrid } from './PhotoGrid';
 const fail = (what: string) => (e: unknown) => Alert.alert(what, e instanceof Error ? e.message : String(e));
 
 /** Everything flicked down in Review. Nothing is deleted; change your mind any time. */
-export function SkippedScreen({ api }: { api: Api }) {
+export function SkippedScreen({ api, title = 'Skipped', headerExtra }: { api: Api; title?: string; headerExtra?: ReactNode }) {
   return (
     <PhotoGrid
       api={api}
       status="reject"
-      title="Skipped"
+      title={title}
+      headerExtra={headerExtra}
       emptyText="Nothing skipped yet. Flick a photo down in Review and it lands here."
+      subtitle={(items) => `${items.length} skipped`}
       cellBadges={false}
       renderActions={(photo, { remove, close }) => (
         <View style={styles.row}>

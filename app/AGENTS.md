@@ -63,7 +63,7 @@ has no device either. So UI work follows a loop that needs neither:
    Two real defects were caught this way on the first run (a wrapping button label and a
    font fallback), so do not skip it.
 3. **Extend `scripts/ui-screenshots.mjs` for every new screen or state.** It drives the app
-   through `testID`s (`tab-<key>`, `thumb-<photoId>`, `grid-select`, `detail-close`,
+   through `testID`s (`tab-<key>` for review/picks/library/settings, `library-sent`/`library-skipped`, `thumb-<photoId>`, `grid-select`, `detail-close`,
    `picks-send-all`, `picks-send-one`, `demo-enter`, `demo-leave`); add a `testID` to anything
    the script must tap and a `shot(name, caption)` for each state worth seeing. The script
    exits non-zero on any uncaught page error, so it is also the web smoke test.
@@ -90,7 +90,8 @@ has no device either. So UI work follows a loop that needs neither:
 
 Conventions for the UI itself: dark theme only, the four semantic colors in
 `src/lib/theme.ts` (`pick` green, `reject` red, `accent` blue, `muted` grey), `Button` for
-every action, grid screens share `src/screens/PhotoGrid.tsx`, and the API's `reject` is shown
+every action (`variant="filled"` for the one main action on a screen, the default tinted
+style for the rest), Ionicons from `@expo/vector-icons` for icons, grid screens share `src/screens/PhotoGrid.tsx`, and the API's `reject` is shown
 as "Skip"/"Skipped" because nothing is ever deleted. The product flow (ADR-008 in
 `docs/DECISIONS.md`): Review is a first triage (flick up = pick, down = skip, left/right
 browse), Picks is a staging area where nothing uploads until **Send to Lightroom**, Sent is

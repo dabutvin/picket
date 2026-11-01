@@ -54,6 +54,8 @@ interface Props {
   onItemsChange?: (prev: Photo[], next: Photo[]) => void;
   /** Next to a day's count in its header, e.g. "2 sending". */
   daySummary?: (items: Photo[]) => string;
+  /** Under the title row, e.g. the Library's Sent / Skipped switch. */
+  headerExtra?: ReactNode;
   /** Show each thumbnail's Lightroom state. Off for the Sent tab, where it says the same thing on every cell. */
   cellBadges?: boolean;
 }
@@ -67,7 +69,7 @@ type Row =
  * capture-day headers (oldest first, as the API lists them); tap a header to collapse the day,
  * and in selection mode its circle selects or clears the whole day.
  */
-export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, onItemsChange, cellBadges = true }: Props) {
+export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, onItemsChange, headerExtra, cellBadges = true }: Props) {
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<Photo[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -254,6 +256,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
           </Pressable>
         )}
       </View>
+      {headerExtra}
       <FlatList
         data={rows}
         keyExtractor={(r) => r.key}
