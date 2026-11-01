@@ -24,8 +24,14 @@ interface Props {
   onPinchOut?: () => void;
 }
 
-const SWIPE_FRACTION = 0.22; // of screen height
-const VELOCITY = 800;
+/** How far the card must travel (or be headed) to commit, as a share of screen height. */
+const SWIPE_FRACTION = 0.12;
+/** A release this fast (pt/s) in the drag's direction commits however short the drag. */
+const FLICK_VELOCITY = 350;
+/** Short drags still need this much travel, so a tap-and-wobble never decides a photo. */
+const FLICK_MIN_TRAVEL = 12;
+/** Seconds of momentum added to the release point, like a scroll view projecting a fling. */
+const PROJECTION = 0.12;
 
 /**
  * One photo in the Review carousel. A vertical pan flicks it off the screen (up = pick,
@@ -64,14 +70,20 @@ export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange
   const pan = Gesture.Pan()
     .enabled(active && !zoomed)
     .maxPointers(1)
-    .activeOffsetY([-14, 14])
-    .failOffsetX([-18, 18])
+    .activeOffsetY([-10, 10])
+    .failOffsetX([-28, 28])
     .onUpdate((e) => {
       y.value = e.translationY;
     })
     .onEnd((e) => {
-      if (e.translationY < -threshold || e.velocityY < -VELOCITY) return flyOut('pick');
-      if (e.translationY > threshold || e.velocityY > VELOCITY) return flyOut('reject');
+      // Judge where the card is headed, not just where the finger let go: a short, quick
+      // flick projects past the threshold. A release moving back towards the middle cancels.
+      const t = e.translationY;
+      const v = e.velocityY;
+      const projected = t + v * PROJECTION;
+      const flicked = Math.abs(v) > FLICK_VELOCITY && Math.abs(t) > FLICK_MIN_TRAVEL && Math.sign(v) === Math.sign(t);
+      if (t < 0 && v <= FLICK_VELOCITY && (projected < -threshold || flicked)) return flyOut('pick');
+      if (t > 0 && v >= -FLICK_VELOCITY && (projected > threshold || flicked)) return flyOut('reject');
       y.value = withSpring(0, { damping: 18, stiffness: 220 });
     });
 

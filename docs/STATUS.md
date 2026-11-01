@@ -21,9 +21,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
    down = skip), picks wait on the Picks tab until **Send all to Lightroom**
    (or a long-press selection), and sent photos move to a Sent tab. Picks
    delivered before #25 move to Sent the first time the Picks tab loads.
-   **Not yet felt on a phone**: the carousel's flick threshold (22% of screen
-   height or a fast fling) and whether a diagonal swipe ever stalls; ask the
-   owner after they try build 3. #26 (sample-photos mode, UI preview comment
+   **Felt on a phone**: the first flick threshold (22% of screen height or an
+   800 pt/s fling) needed too long a swipe; it is now 12% of height judged on
+   where the card is headed (release point + 0.12 s of momentum), or any
+   350 pt/s flick in the drag's direction. Ask the owner whether it now picks
+   on a flick without misfiring, and whether a diagonal swipe ever stalls. #26 (sample-photos mode, UI preview comment
    on PRs) needs no deploy; the sample mode ships with the next `app-build`.
 1. ~~Run the photo-id migration~~ Done 2026-10-31 16:22Z (`ops` run 13,
    confirm=`migrate`): 642 rows, 526 moved to the frame-based id, 116 already
