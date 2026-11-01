@@ -8,13 +8,13 @@ import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
 import { withRecent } from '../lib/recent';
+import { hydrate, imageKey, isStale, patch, peek, subscribe, sync, type Snapshot } from '../lib/photoStore';
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
 import { ZoomableImage } from '../components/ZoomableImage';
 
 const COLUMNS = 3;
 const GAP = 6;
-const PAGE = 60;
 const POLL_MS = 2500;
 
 /** Collapsed days per tab, kept across tab switches (each tab unmounts when another is shown). */
@@ -71,11 +71,10 @@ type Row =
  */
 export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, onItemsChange, headerExtra, cellBadges = true }: Props) {
   const { width } = useWindowDimensions();
-  const [items, setItems] = useState<Photo[]>([]);
-  const [cursor, setCursor] = useState<string | undefined>();
-  /** The API's count for this tab; only needed (and only fetched) while the list is partly loaded. */
+  /** This tab's list from the photo store: cached at once, then kept in step with the server. */
+  const [snap, setSnap] = useState<Snapshot | undefined>(() => peek(api, status));
+  /** The API's count, fetched only while the list is still incomplete. */
   const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Photo | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -83,39 +82,50 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedByStatus.get(status) ?? new Set());
   const [exporting, setExporting] = useState<'save' | 'share' | 'saved' | null>(null);
 
-  const load = useCallback(
-    async (mode: 'reset' | 'more' | 'refresh' | 'poll') => {
-      if (mode === 'refresh') setRefreshing(true);
-      else if (mode !== 'poll') setLoading(true);
-      try {
-        const page = await api.list(status, PAGE, mode === 'more' ? cursor : undefined);
-        setItems((p) => withRecent(status, mode === 'more' ? [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))] : page.items));
-        setCursor(page.cursor);
-        if (mode !== 'more') {
-          if (page.cursor) api.stats().then((s) => setTotal(s.photos[status]), () => undefined);
-          else setTotal(null);
-        }
-      } catch (e) {
-        if (mode !== 'poll') Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
-      } finally {
-        setRefreshing(false);
-        setLoading(false);
-      }
-    },
-    [api, cursor, status, title],
+  const items = useMemo(() => withRecent(status, snap?.items ?? []), [snap, status]);
+  const complete = snap?.complete ?? false;
+  const loading = !snap || (snap.syncing && snap.items.length === 0);
+
+  const syncNow = useCallback(
+    (quiet: boolean) =>
+      sync(api, status).catch((e: unknown) => {
+        if (!quiet) Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
+      }),
+    [api, status, title],
   );
 
+  // Open from the cache (memory, else disk) and sync behind it when it is stale.
   useEffect(() => {
-    void load('reset');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, status]);
+    let alive = true;
+    const unsubscribe = subscribe(api, status, (s) => alive && setSnap(s));
+    void hydrate(api, status).then(() => {
+      if (!alive) return;
+      setSnap(peek(api, status));
+      // Quiet when there is a list to show: a failed background refresh should not interrupt it.
+      if (isStale(api, status)) void syncNow(!!peek(api, status)?.items.length);
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, [api, status, syncNow]);
+
+  // Until the whole list is in, the header shows the API's count rather than what has loaded.
+  useEffect(() => {
+    if (complete) return;
+    let alive = true;
+    api.stats().then((st) => alive && setTotal(st.photos[status]), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [api, status, complete]);
 
   // While something is on its way to Lightroom, keep the states fresh (a sent photo leaves this tab).
   useEffect(() => {
     if (!pollWhile?.(items)) return;
-    const t = setTimeout(() => void load('poll'), POLL_MS);
+    const t = setTimeout(() => void syncNow(true), POLL_MS);
     return () => clearTimeout(t);
-  }, [items, pollWhile, load]);
+  }, [items, pollWhile, syncNow]);
 
   // Tell the screen what changed (Picks counts what finished sending).
   const prevItems = useRef(items);
@@ -133,33 +143,34 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     });
   }, [items]);
 
+  // Edits go through the store, so the cached list (and the saved copy) changes with the screen.
   const helpers: GridHelpers = useMemo(
     () => ({
       replace: (p) => {
-        setItems((list) => list.map((x) => (x.photoId === p.photoId ? p : x)));
+        patch(api, status, (list) => list.map((x) => (x.photoId === p.photoId ? p : x)));
         setSelected((s) => (s?.photoId === p.photoId ? p : s));
       },
       replaceMany: (ps) => {
         const by = new Map(ps.map((p) => [p.photoId, p]));
-        setItems((list) => list.map((x) => by.get(x.photoId) ?? x));
+        patch(api, status, (list) => list.map((x) => by.get(x.photoId) ?? x));
         setSelected((s) => (s && by.get(s.photoId)) ?? s);
       },
       remove: (id) => {
-        setItems((list) => list.filter((x) => x.photoId !== id));
+        patch(api, status, (list) => list.filter((x) => x.photoId !== id));
         setSelected((s) => (s?.photoId === id ? null : s));
       },
       removeMany: (ids) => {
         const gone = new Set(ids);
-        setItems((list) => list.filter((x) => !gone.has(x.photoId)));
+        patch(api, status, (list) => list.filter((x) => !gone.has(x.photoId)));
         setSelected((s) => (s && gone.has(s.photoId) ? null : s));
       },
       close: () => {
         setSelected(null);
         setExporting(null);
       },
-      reload: () => void load('poll'),
+      reload: () => void syncNow(true),
     }),
-    [load],
+    [api, status, syncNow],
   );
 
   const endSelecting = () => {
@@ -191,9 +202,9 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     });
 
   const cell = (width - 16 * 2 - GAP * (COLUMNS - 1)) / COLUMNS;
-  // All loaded: what is on screen is exact (and includes this session's moves). Otherwise the API's count.
-  const countKnown = !cursor || total !== null;
-  const count = !cursor ? items.length : Math.max(total ?? 0, items.length);
+  // Whole list in: what is on screen is exact (and includes this session's moves). Otherwise the API's count.
+  const countKnown = complete || total !== null;
+  const count = complete ? items.length : Math.max(total ?? 0, items.length);
   const pickedItems = items.filter((p) => picked.has(p.photoId));
 
   const rows = useMemo<Row[]>(() => {
@@ -223,7 +234,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         style={{ width: cell, height: cell }}
         testID={`thumb-${item.photoId}`}
       >
-        <Image source={{ uri: item.thumbUrl }} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
+        <Image source={{ uri: item.thumbUrl, cacheKey: imageKey(item, 'thumb') }} cachePolicy="memory-disk" recyclingKey={item.photoId} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
         {cellBadges && <LightroomBadge info={item.lightroom} compact />}
         {selecting && <View style={[styles.check, isPicked && styles.checkOn]}>{isPicked && <Text style={styles.checkMark}>✓</Text>}</View>}
       </Pressable>
@@ -257,7 +268,9 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle ? subtitle(items, count) : `${count}${countKnown ? '' : '+'}`}</Text>
+          <Text style={styles.subtitle}>
+            {loading ? 'Loading…' : subtitle ? subtitle(items, count) : `${count}${countKnown ? '' : '+'}`}
+          </Text>
         </View>
         {renderBar && items.length > 0 && (
           <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8} testID="grid-select">
@@ -270,10 +283,16 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         data={rows}
         keyExtractor={(r) => r.key}
         contentContainerStyle={styles.list}
-        onEndReached={() => cursor && !loading && void load('more')}
-        onEndReachedThreshold={0.6}
-        onRefresh={() => void load('refresh')}
+        onRefresh={() => {
+          setRefreshing(true);
+          void syncNow(false).finally(() => setRefreshing(false));
+        }}
         refreshing={refreshing}
+        // Thousands of photos: render a few rows at a time and drop the ones far off screen.
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
         extraData={[picked, selecting]}
         ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} /> : <Text style={styles.empty}>{emptyText}</Text>}
         renderItem={({ item }) => (item.kind === 'day' ? renderDay(item) : <View style={styles.row}>{item.photos.map(renderThumb)}</View>)}
@@ -282,7 +301,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
 
       {selected && (
         <View style={styles.sheet}>
-          <ZoomableImage uri={selected.previewUrl} placeholder={selected.thumbUrl} style={styles.sheetImage} testID="detail-image" />
+          <ZoomableImage uri={selected.previewUrl} cacheKey={imageKey(selected, 'preview')} placeholder={selected.thumbUrl} style={styles.sheetImage} testID="detail-image" />
           <View style={styles.metaRow}>
             <View style={styles.metaText}>
               <Text style={styles.fileName}>{selected.fileName}</Text>

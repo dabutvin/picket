@@ -9,6 +9,7 @@ import { loadSettings, type Settings } from './src/lib/settings';
 import { createApi, type Api } from './src/lib/api';
 import type { Stats } from './src/lib/types';
 import { createDemoApi } from './src/lib/demo';
+import { warm } from './src/lib/photoStore';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
@@ -87,6 +88,13 @@ export default function App() {
         picks: { count: stats.photos.pick ?? 0, alert: (stats.lightroom.failed ?? 0) > 0 },
       }
     : {};
+
+  // Fill the Skipped / Sent / Picks caches in the background once Review has had its turn.
+  useEffect(() => {
+    if (!api) return;
+    const t = setTimeout(() => void warm(api), 2500);
+    return () => clearTimeout(t);
+  }, [api]);
 
   return (
     <GestureHandlerRootView style={styles.root}>

@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import type { Photo } from '../lib/types';
 import { colors } from '../lib/theme';
 import { dayKey, dayLabel } from '../lib/days';
+import { imageKey } from '../lib/photoStore';
 import { Button } from './Button';
 
 const COLUMNS = 3;
@@ -97,7 +98,7 @@ export function QueueGrid({ photos, index, total, loading, onPick, onEndReached,
             <View style={[styles.row, { height: rowHeight }]}>
               {item.photos.map(({ photo, index: i }) => (
                 <Pressable key={photo.photoId} onPress={() => onPick(i)} style={{ width: cell, height: cell }} testID={`review-thumb-${photo.photoId}`}>
-                  <Image source={{ uri: photo.thumbUrl }} contentFit="cover" style={[styles.thumb, i === index && styles.current]} />
+                  <Image source={{ uri: photo.thumbUrl, cacheKey: imageKey(photo, 'thumb') }} cachePolicy="memory-disk" contentFit="cover" style={[styles.thumb, i === index && styles.current]} />
                   <Text style={styles.number}>{i + 1}</Text>
                 </Pressable>
               ))}

@@ -46,8 +46,9 @@ The owner operates from a phone and cannot run Metro or a simulator, and this cl
 has no device either. So UI work follows a loop that needs neither:
 
 1. **Build against the sample photos, not the live API.** `src/lib/demo.ts` is an in-memory
-   stand-in for the Picket API with 54 sample photos spread across every tab (a Review queue
-   longer than one page, Picks with one failed upload, Sent, Skipped), a connected
+   stand-in for the Picket API with 294 sample photos spread across every tab (a Review queue
+   longer than one page, Picks with one failed upload, Sent, and a Skipped backlog of 242
+   across October so multi-page syncing and long grids are exercised), a connected
    "Lightroom" and receiver settings.
    Sends to Lightroom "complete" after a few seconds. Settings → **Try with sample photos**
    turns it on in the app; `EXPO_PUBLIC_PICKET_DEMO=1` at export time starts in it. When you
@@ -91,6 +92,15 @@ has no device either. So UI work follows a loop that needs neither:
    the script avoids flows that confirm through one; fonts need a web fallback
    (`MONO` in `src/lib/theme.ts`). A new native module needs the same treatment or a
    `Platform.OS === 'web'` guard, or the preview breaks for every later PR.
+
+Data for the grid tabs (Picks, Sent, Skipped) comes from `src/lib/photoStore.ts`, not straight
+from the API: each tab's whole list is cached in memory and in a JSON file, synced 100 at a time
+in the background (`warm()` runs a few seconds after launch), and patched locally on every
+decision. Grids read it through `PhotoGrid`; anything that moves a photo should go through
+`noteDecision` / `notePhoto` in `src/lib/recent.ts`, which update the store too. Thumbnails use
+`imageKey()` as their expo-image `cacheKey`, because the API signs new URLs on every call and
+URL-keyed caching would re-download every thumbnail. Persistence is native only; the web build
+and sample-photos mode keep the cache in memory.
 
 Conventions for the UI itself: dark theme only, the four semantic colors in
 `src/lib/theme.ts` (`pick` green, `reject` red, `accent` blue, `muted` grey), `Button` for

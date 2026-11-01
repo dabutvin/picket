@@ -5,6 +5,7 @@ import { saveSettings, clearSettings, type Settings } from '../lib/settings';
 import { createApi, pair, type Api } from '../lib/api';
 import type { LightroomStatusView } from '../lib/types';
 import { loginToAdobe } from '../lib/adobeAuth';
+import { clearAll as clearPhotoCache } from '../lib/photoStore';
 import { Button } from '../components/Button';
 import { CameraSection } from './CameraSection';
 
@@ -182,7 +183,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
           title="Sign out of Picket"
           color={colors.reject}
           onPress={() => {
-            void clearSettings().then(() => onSaved(null));
+            void Promise.all([clearSettings(), clearPhotoCache()]).then(() => onSaved(null));
           }}
           style={{ marginTop: 24 }}
         />
