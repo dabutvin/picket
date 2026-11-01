@@ -48,8 +48,8 @@ interface Props {
   renderBar?: (ctx: BarContext) => ReactNode;
   /** Reload every few seconds while this holds (uploads in progress). */
   pollWhile?: (items: Photo[]) => boolean;
-  /** Under the title, instead of the plain count. */
-  subtitle?: (items: Photo[]) => string;
+  /** Under the title, instead of the plain count. `count` is the tab's real total, not just what is loaded. */
+  subtitle?: (items: Photo[], count: number) => string;
   /** Called with the previous and next list whenever it changes (a poll, an action, a send). */
   onItemsChange?: (prev: Photo[], next: Photo[]) => void;
   /** Next to a day's count in its header, e.g. "2 sending". */
@@ -73,6 +73,8 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<Photo[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
+  /** The API's count for this tab; only needed (and only fetched) while the list is partly loaded. */
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Photo | null>(null);
@@ -89,6 +91,10 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         const page = await api.list(status, PAGE, mode === 'more' ? cursor : undefined);
         setItems((p) => withRecent(status, mode === 'more' ? [...p, ...page.items.filter((n) => !p.some((x) => x.photoId === n.photoId))] : page.items));
         setCursor(page.cursor);
+        if (mode !== 'more') {
+          if (page.cursor) api.stats().then((s) => setTotal(s.photos[status]), () => undefined);
+          else setTotal(null);
+        }
       } catch (e) {
         if (mode !== 'poll') Alert.alert(`Could not load ${title.toLowerCase()}`, e instanceof Error ? e.message : String(e));
       } finally {
@@ -185,6 +191,9 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     });
 
   const cell = (width - 16 * 2 - GAP * (COLUMNS - 1)) / COLUMNS;
+  // All loaded: what is on screen is exact (and includes this session's moves). Otherwise the API's count.
+  const countKnown = !cursor || total !== null;
+  const count = !cursor ? items.length : Math.max(total ?? 0, items.length);
   const pickedItems = items.filter((p) => picked.has(p.photoId));
 
   const rows = useMemo<Row[]>(() => {
@@ -248,7 +257,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle ? subtitle(items) : `${items.length}${cursor ? '+' : ''}`}</Text>
+          <Text style={styles.subtitle}>{subtitle ? subtitle(items, count) : `${count}${countKnown ? '' : '+'}`}</Text>
         </View>
         {renderBar && items.length > 0 && (
           <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8} testID="grid-select">

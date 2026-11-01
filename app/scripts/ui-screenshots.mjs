@@ -44,6 +44,24 @@ const shot = async (name, caption) => {
   console.log('shot', name);
 };
 const byId = (id) => page.getByTestId(id);
+
+/** A real two-finger pinch through the DevTools protocol (Playwright has no pinch API). */
+const cdp = await page.context().newCDPSession(page);
+async function pinch(testId, fromGap, toGap, steps = 8) {
+  const box = await byId(testId).boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const points = (gap) => [
+    { x: cx - gap / 2, y: cy, id: 0 },
+    { x: cx + gap / 2, y: cy, id: 1 },
+  ];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(fromGap) });
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(fromGap + ((toGap - fromGap) * i) / steps) });
+    await page.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
 const settle = (ms) => page.waitForTimeout(ms);
 
 await page.goto(base, { waitUntil: 'networkidle' });
@@ -55,6 +73,16 @@ await settle(700);
 await shot('01b-review-zoomed', 'Review: double-tapped to zoom (pinch works too; one finger pans while zoomed)');
 await byId('review-image').dblclick();
 await settle(700);
+// Pinch in on the fitted photo: the Jump-to grid opens.
+await pinch('review-image', 260, 80);
+await settle(900);
+if (await byId('review-grid-close').isVisible().catch(() => false)) {
+  await shot('01c-review-pinched-to-grid', 'Review: pinched in on the photo, the Jump-to grid opened');
+  await byId('review-grid-close').click();
+  await settle(500);
+} else {
+  throw new Error('pinching in on the fitted Review photo did not open the Jump-to grid');
+}
 await page.getByText('↑ Pick', { exact: true }).click();
 await settle(900);
 await shot('02-review-after-pick', 'Review: after flicking one up (next photo slid in, Undo enabled)');
