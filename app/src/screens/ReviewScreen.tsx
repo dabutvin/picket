@@ -29,6 +29,8 @@ export function ReviewScreen({ api }: { api: Api }) {
   const [last, setLast] = useState<{ photo: Photo; decision: CardDecision; index: number } | null>(null);
   const [decided, setDecided] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
+  /** Unreviewed photos per the API, kept current between fetches by this screen's own decisions. */
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [grid, setGrid] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const command = useRef<((d: CardDecision) => void) | null>(null);
@@ -39,6 +41,16 @@ export function ReviewScreen({ api }: { api: Api }) {
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  const refreshStats = useCallback(() => {
+    api.stats().then(
+      (s) => {
+        setStats(s);
+        setRemaining(s.photos.unreviewed);
+      },
+      () => undefined,
+    );
+  }, [api]);
 
   const loadMore = useCallback(
     async (reset = false) => {
@@ -53,7 +65,10 @@ export function ReviewScreen({ api }: { api: Api }) {
           const merged = [...(reset ? [] : q), ...page.items.filter((p) => !seen.has(p.photoId))];
           return reset ? withRecent('unreviewed', merged) : merged;
         });
-        if (reset) setIndex(0);
+        if (reset) {
+          setIndex(0);
+          refreshStats();
+        }
         setCursor(page.cursor);
         setExhausted(!page.cursor);
       } catch (e) {
@@ -63,7 +78,7 @@ export function ReviewScreen({ api }: { api: Api }) {
         setLoading(false);
       }
     },
-    [api, cursor, exhausted],
+    [api, cursor, exhausted, refreshStats],
   );
 
   useEffect(() => {
@@ -71,11 +86,11 @@ export function ReviewScreen({ api }: { api: Api }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
 
-  // Lifetime counts, refreshed every 10 decisions and on load.
+  // Counts, refreshed on load, on Refresh, and every 10 decisions.
   useEffect(() => {
     if (decided % 10 !== 0) return;
-    api.stats().then(setStats, () => undefined);
-  }, [api, decided]);
+    refreshStats();
+  }, [refreshStats, decided]);
 
   // Keep a few pages ahead of the one in view loaded and their previews warm.
   useEffect(() => {
@@ -92,12 +107,14 @@ export function ReviewScreen({ api }: { api: Api }) {
       noteDecision(photo, decision);
       setQueue((q) => q.filter((p) => p.photoId !== photo.photoId));
       setDecided((n) => n + 1);
+      setRemaining((n) => (n === null ? n : Math.max(0, n - 1)));
       api.decide(photo.photoId, decision).catch((e: unknown) => {
         // Put it back where it was so nothing is silently lost.
         noteDecision(photo, 'unreviewed');
         setQueue((q) => (q.some((p) => p.photoId === photo.photoId) ? q : [photo, ...q]));
         setLast(null);
         setDecided((n) => n - 1);
+        setRemaining((n) => (n === null ? n : n + 1));
         Alert.alert('Could not save decision', e instanceof Error ? e.message : String(e));
       });
     },
@@ -115,13 +132,16 @@ export function ReviewScreen({ api }: { api: Api }) {
     setQueue(next);
     setIndex(slot);
     setDecided((n) => Math.max(0, n - 1));
+    setRemaining((n) => (n === null ? n : n + 1));
     api.decide(photo.photoId, 'unreviewed').catch((e: unknown) => {
       Alert.alert('Could not undo', e instanceof Error ? e.message : String(e));
     });
   }, [api, last]);
 
   const current = queue[index];
-  const position = queue.length ? `${Math.min(index + 1, queue.length)} of ${queue.length}${exhausted ? '' : '+'}` : '';
+  // Everything loaded: count it. Otherwise the API's count (never less than what is loaded).
+  const total = exhausted ? queue.length : remaining === null ? null : Math.max(remaining, queue.length);
+  const position = queue.length ? `${Math.min(index + 1, queue.length)} of ${total ?? `${queue.length}+`}` : '';
 
   const renderEnd = () => (
     <View style={styles.end}>
@@ -167,13 +187,20 @@ export function ReviewScreen({ api }: { api: Api }) {
         index={index}
         onIndexChange={setIndex}
         renderItem={(photo, active) => (
-          <ReviewCard photo={photo} active={active} onDecision={onDecision} commandRef={command} onZoomChange={active ? setZoomed : undefined} />
+          <ReviewCard
+            photo={photo}
+            active={active}
+            onDecision={onDecision}
+            commandRef={command}
+            onZoomChange={active ? setZoomed : undefined}
+            onPinchOut={active ? () => setGrid(true) : undefined}
+          />
         )}
         renderEnd={renderEnd}
         enabled={!zoomed}
       />
 
-      {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around. Pinch or double-tap to zoom.</Text>}
+      {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around. Pinch or double-tap to zoom; pinch in for the grid.</Text>}
 
       <View style={styles.actions}>
         <Button title="↓ Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
@@ -185,7 +212,7 @@ export function ReviewScreen({ api }: { api: Api }) {
         <QueueGrid
           photos={queue}
           index={index}
-          more={!exhausted}
+          total={total ?? queue.length}
           loading={loading}
           onPick={(i) => {
             setIndex(i);

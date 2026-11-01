@@ -20,6 +20,8 @@ interface Props {
   commandRef?: React.MutableRefObject<((d: CardDecision) => void) | null>;
   /** The photo is zoomed in: the carousel should stop browsing until it is zoomed out. */
   onZoomChange?: (zoomed: boolean) => void;
+  /** Pinched in past fit: show the whole queue. */
+  onPinchOut?: () => void;
 }
 
 const SWIPE_FRACTION = 0.22; // of screen height
@@ -31,7 +33,7 @@ const VELOCITY = 800;
  * animation values, so the card that replaces a decided one always starts at rest. While the
  * photo is zoomed, one finger pans the photo instead of flicking.
  */
-export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange }: Props) {
+export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange, onPinchOut }: Props) {
   const { height } = useWindowDimensions();
   const y = useSharedValue(0);
   const [zoomed, setZoomed] = useState(false);
@@ -87,7 +89,7 @@ export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange
   return (
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.card, cardStyle]}>
-        <ZoomableImage uri={photo.previewUrl} placeholder={photo.thumbUrl} style={styles.image} onZoomChange={zoomChanged} testID={active ? 'review-image' : undefined} />
+        <ZoomableImage uri={photo.previewUrl} placeholder={photo.thumbUrl} style={styles.image} onZoomChange={zoomChanged} onPinchOut={active ? onPinchOut : undefined} testID={active ? 'review-image' : undefined} />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.dim, dim]} />
         <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampTop, pickStamp]}>
           <Text style={[styles.stampText, { color: colors.pick }]}>PICK</Text>

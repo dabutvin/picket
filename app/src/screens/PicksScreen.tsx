@@ -129,9 +129,9 @@ export function PicksScreen({ api }: { api: Api }) {
       status="pick"
       title="Picks"
       emptyText="Flick a photo up in Review and it waits here until you send it to Lightroom."
-      subtitle={(items) => {
+      subtitle={(items, count) => {
         const inFlight = items.filter(onItsWay).length;
-        const waiting = items.length - inFlight;
+        const waiting = count - inFlight;
         return [`${waiting} waiting`, inFlight ? `${inFlight} sending` : ''].filter(Boolean).join(' · ');
       }}
       pollWhile={sending}

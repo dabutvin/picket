@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions, ActivityIndicator } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import type { Photo } from '../lib/types';
 import { colors } from '../lib/theme';
@@ -17,8 +18,8 @@ interface Props {
   photos: Photo[];
   /** Index of the photo the carousel is showing; highlighted and scrolled into view. */
   index: number;
-  /** More photos exist beyond what is loaded. */
-  more: boolean;
+  /** Everything left to review (the API's count); the grid may have loaded fewer so far. */
+  total: number;
   loading: boolean;
   onPick: (index: number) => void;
   onEndReached: () => void;
@@ -29,7 +30,7 @@ interface Props {
  * The whole review queue as thumbnails grouped by capture day, for jumping the carousel to a
  * different part of the shoot. Tap a photo to go there.
  */
-export function QueueGrid({ photos, index, more, loading, onPick, onEndReached, onClose }: Props) {
+export function QueueGrid({ photos, index, total, loading, onPick, onEndReached, onClose }: Props) {
   const { width } = useWindowDimensions();
   const cell = (width - PADDING * 2 - GAP * (COLUMNS - 1)) / COLUMNS;
   const rowHeight = cell + GAP;
@@ -68,13 +69,12 @@ export function QueueGrid({ photos, index, more, loading, onPick, onEndReached, 
   }, [photos, index, rowHeight]);
 
   return (
-    <View style={styles.root}>
+    <Animated.View style={styles.root} entering={FadeIn.duration(160)}>
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Jump to</Text>
           <Text style={styles.subtitle}>
-            {photos.length}
-            {more ? '+' : ''} to review · oldest first
+            {total} to review · oldest first
           </Text>
         </View>
         <Button title="Close" color={colors.muted} onPress={onClose} testID="review-grid-close" />
@@ -105,7 +105,7 @@ export function QueueGrid({ photos, index, more, loading, onPick, onEndReached, 
           )
         }
       />
-    </View>
+    </Animated.View>
   );
 }
 

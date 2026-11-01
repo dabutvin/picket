@@ -46,8 +46,9 @@ The owner operates from a phone and cannot run Metro or a simulator, and this cl
 has no device either. So UI work follows a loop that needs neither:
 
 1. **Build against the sample photos, not the live API.** `src/lib/demo.ts` is an in-memory
-   stand-in for the Picket API with 18 sample photos spread across every tab (Review, Picks
-   with one failed upload, Sent, Skipped), a connected "Lightroom" and receiver settings.
+   stand-in for the Picket API with 54 sample photos spread across every tab (a Review queue
+   longer than one page, Picks with one failed upload, Sent, Skipped), a connected
+   "Lightroom" and receiver settings.
    Sends to Lightroom "complete" after a few seconds. Settings → **Try with sample photos**
    turns it on in the app; `EXPO_PUBLIC_PICKET_DEMO=1` at export time starts in it. When you
    add a screen or state, give the sample data what it needs to show that state.
@@ -66,7 +67,10 @@ has no device either. So UI work follows a loop that needs neither:
    through `testID`s (`tab-<key>`, `thumb-<photoId>`, `grid-select`, `detail-close`,
    `picks-send-all`, `picks-send-one`, `demo-enter`, `demo-leave`); add a `testID` to anything
    the script must tap and a `shot(name, caption)` for each state worth seeing. The script
-   exits non-zero on any uncaught page error, so it is also the web smoke test.
+   exits non-zero on any uncaught page error, so it is also the web smoke test. Its
+   `pinch(testId, fromGap, toGap)` helper sends a real two-finger touch through the DevTools
+   protocol, which gesture-handler's web build recognizes; use it for pinch flows and make a
+   missed result throw rather than warn.
 4. **Open the PR and read its UI preview comment.** `.github/workflows/ui-preview.yml` runs
    the same export and script on every PR touching `app/`, pushes the images to the
    `ui-previews` branch (latest commit per PR) and posts one comment that updates on each
@@ -74,8 +78,8 @@ has no device either. So UI work follows a loop that needs neither:
    build CI made. Images are raw URLs on that branch and stop rendering in comments if the
    repository goes private (the `ui-screenshots` artifact on the run still has them).
 5. **Know what the preview cannot tell you.** It is `react-native-web` in headless Chromium:
-   layout, copy, colors and flow are faithful; native gesture feel, fonts and animation
-   timing are not. Gesture code (the Review carousel in `src/components/Carousel.tsx` and
+   layout, copy, colors and flow are faithful, and `pinch()` proves a pinch is wired up;
+   native gesture feel, fonts and animation timing are not. Gesture code (the Review carousel in `src/components/Carousel.tsx` and
    `ReviewCard.tsx`, Reanimated + gesture-handler) can only be felt on a phone. Say so in the
    PR, name the thing to feel out (threshold, stuck diagonal swipe), and ship it to TestFlight
    for the owner: merge, then run the `deploy` workflow if the API changed and `app-build`

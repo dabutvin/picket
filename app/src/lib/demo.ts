@@ -72,6 +72,8 @@ function seedPhotos(): Photo[] {
   photos.push(samplePhoto(16, 'sent', at('2026-10-30T18:32:00Z')));
   photos.push(samplePhoto(17, 'reject'));
   photos.push(samplePhoto(18, 'reject'));
+  // A queue longer than one page (Review loads 30 at a time), so totals come from /stats.
+  for (let n = 19; n <= 54; n++) photos.push(samplePhoto(n, 'unreviewed'));
   return photos;
 }
 
