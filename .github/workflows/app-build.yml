@@ -7,9 +7,14 @@ name: app-build
 #                      App Store Connect API (state kept in AWS Secrets Manager), then runs EAS Build.
 #                      production/ios goes to TestFlight unless the testflight box is unticked
 #   submit           → sends the latest finished production iOS build on EAS to TestFlight
+# Every push to main that touches app/ also runs build (ios / production) without TestFlight, so each
+# merged change gets checked on EAS; run submit to send the latest one to TestFlight.
 # GitHub secrets: EXPO_TOKEN, APPLE_TEAM_ID, ASC_API_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID, and the AWS creds
 # (the generated iOS signing material is kept in AWS Secrets Manager picket/apple-signing). See docs/OPERATIONS.md.
 on:
+  push:
+    branches: [main]
+    paths: ["app/**"]
   workflow_dispatch:
     inputs:
       action:
@@ -35,7 +40,18 @@ permissions:
   contents: write # commits the EAS project id into app/app.json the first time
   id-token: write
 
+# Pushes run one at a time; if several land while one runs, only the newest waiting push builds.
+# Manual runs are never queued behind each other.
+concurrency:
+  group: ${{ github.event_name == 'push' && 'app-build-main' || github.run_id }}
+  cancel-in-progress: false
+
 env:
+  # A push has no inputs: it builds ios / production and leaves TestFlight to the submit action.
+  ACTION: ${{ inputs.action || 'build' }}
+  PROFILE: ${{ inputs.profile || 'production' }}
+  PLATFORM: ${{ inputs.platform || 'ios' }}
+  TESTFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
@@ -105,7 +121,7 @@ jobs:
 
       # ------------------------------------------------------------------ register-device
       - name: Start device enrollment on EAS
-        if: inputs.action == 'register-device'
+        if: env.ACTION == 'register-device'
         run: |
           set -euo pipefail
           eas workflow:run .eas/workflows/register-device.yml --non-interactive -F "team_id=$APPLE_TEAM_ID" 2>&1 | tee run.log
@@ -122,7 +138,7 @@ jobs:
 
       # ------------------------------------------------------------------ devices
       - name: List registered devices
-        if: inputs.action == 'devices'
+        if: env.ACTION == 'devices'
         run: |
           set -euo pipefail
           eas device:list --apple-team-id "$APPLE_TEAM_ID" --json --non-interactive > devices.json || echo '[]' > devices.json
@@ -139,7 +155,7 @@ jobs:
 
       # ------------------------------------------------------------------ build
       - name: iOS signing via App Store Connect API
-        if: inputs.action == 'build' && inputs.platform != 'android'
+        if: env.ACTION == 'build' && env.PLATFORM != 'android'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -147,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           eas device:list --apple-team-id "$APPLE_TEAM_ID" --json --non-interactive > devices.json || echo '[]' > devices.json
-          type=adhoc; [ "${{ inputs.profile }}" = "production" ] && type=appstore
+          type=adhoc; [ "${{ env.PROFILE }}" = "production" ] && type=appstore
           DEVICES_JSON=devices.json node scripts/apple-signing.mjs ensure --type "$type" > signing.json
           {
             echo "## iOS signing"
@@ -160,7 +176,7 @@ jobs:
       # in the submit profile; both are filled in here, never committed. The app record itself is created
       # once by hand in App Store Connect (Apple's API cannot create it).
       - name: TestFlight submit profile
-        if: (inputs.action == 'build' && inputs.profile == 'production' && inputs.platform == 'ios' && inputs.testflight) || inputs.action == 'submit'
+        if: (env.ACTION == 'build' && env.PROFILE == 'production' && env.PLATFORM == 'ios' && env.TESTFLIGHT == 'true') || env.ACTION == 'submit'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -175,14 +191,14 @@ jobs:
           echo "App Store Connect app id: $app_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Start EAS build
-        if: inputs.action == 'build'
+        if: env.ACTION == 'build'
         run: |
           set -euo pipefail
           submit=""
-          if [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ] && [ "${{ inputs.testflight }}" = "true" ]; then submit="--auto-submit"; fi
-          eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json $submit > build.json
+          if [ "${{ env.PROFILE }}" = "production" ] && [ "${{ env.PLATFORM }}" = "ios" ] && [ "$TESTFLIGHT" = "true" ]; then submit="--auto-submit"; fi
+          eas build --platform "${{ env.PLATFORM }}" --profile "${{ env.PROFILE }}" --non-interactive --no-wait --json $submit > build.json
           {
-            echo "## EAS build started (${{ inputs.platform }} / ${{ inputs.profile }})"
+            echo "## EAS build started (${{ env.PLATFORM }} / ${{ env.PROFILE }})"
             echo
             node -e '
               const builds = JSON.parse(require("fs").readFileSync("build.json","utf8"));
@@ -194,7 +210,7 @@ jobs:
             echo
             if [ -n "$submit" ]; then
               echo "EAS submits this build to TestFlight when it finishes (about 15 minutes to build, then about 10 minutes of Apple processing). Testers install it from the TestFlight app; manage them in App Store Connect → Picket → TestFlight → Internal Testing."
-            elif [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ]; then
+            elif [ "${{ env.PROFILE }}" = "production" ] && [ "${{ env.PLATFORM }}" = "ios" ]; then
               echo "TestFlight submission is off for this run. An App Store build can't be installed from the EAS link; when you're happy with it, run **app-build → submit** to send the latest production build to TestFlight."
             else
               echo "Open the link on your phone. When the build finishes, tap **Install**."
@@ -203,7 +219,7 @@ jobs:
 
       # ------------------------------------------------------------------ submit
       - name: Submit latest production build to TestFlight
-        if: inputs.action == 'submit'
+        if: env.ACTION == 'submit'
         run: |
           set -euo pipefail
           eas submit --platform ios --profile production --latest --non-interactive --no-wait 2>&1 | tee submit.log

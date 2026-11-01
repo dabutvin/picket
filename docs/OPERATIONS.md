@@ -88,6 +88,10 @@ Four actions, all without a computer or an Apple ID login:
 | `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` (ios) makes an App Store profile instead and hands the finished build to TestFlight automatically (untick `testflight` to only build it on EAS); see **TestFlight** below. Android needs none of this. |
 | `submit` | sends the latest finished `production` iOS build on EAS to TestFlight, for a build made with `testflight` unticked. No rebuild. |
 
+Every push to `main` that changes `app/` also runs `build` on its own (ios,
+`production`, `testflight` off), so each merged app change is built on EAS.
+When one looks good, run `submit` to send the latest to TestFlight.
+
 The signing material (private key, certificate, profile) lives in AWS Secrets
 Manager under `picket/apple-signing`, so every build reuses it; nothing is
 committed. The first `build` also links the Expo project and commits its id
