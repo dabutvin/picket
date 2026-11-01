@@ -17,7 +17,7 @@ export function SkippedScreen({ api, title = 'Skipped', headerExtra }: { api: Ap
       title={title}
       headerExtra={headerExtra}
       emptyText="Nothing skipped yet. Flick a photo down in Review and it lands here."
-      subtitle={(items) => `${items.length} skipped`}
+      subtitle={(_items, count) => `${count} skipped`}
       cellBadges={false}
       renderActions={(photo, { remove, close }) => (
         <View style={styles.row}>
