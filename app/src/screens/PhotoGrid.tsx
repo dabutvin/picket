@@ -66,7 +66,8 @@ type Row =
 
 /**
  * Shared grid + detail view for the Picks, Sent and Skipped screens. Photos are grouped under
- * capture-day headers (oldest first, as the API lists them); tap a header to collapse the day,
+ * capture-day headers (oldest first, as the API lists them); tap a header to collapse the day
+ * (or "Collapse all" / "Expand all" at the top for every day),
  * and in selection mode its circle selects or clears the whole day.
  */
 export function PhotoGrid({ api, status, title, emptyText, renderActions, renderBar, pollWhile, subtitle, daySummary, onItemsChange, headerExtra, cellBadges = true }: Props) {
@@ -210,15 +211,24 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   // The detail view shows the store's current copy, so a refreshed URL reaches it.
   const shown = selected ? (items.find((p) => p.photoId === selected.photoId) ?? selected) : null;
 
+  const days = useMemo(() => groupByDay(items), [items]);
+  // Any day open: the header collapses every day. All closed: it opens them again.
+  const anyOpen = days.some((g) => !collapsed.has(g.key));
+  const setAllCollapsed = (collapse: boolean) => {
+    const next = new Set(collapse ? days.map((g) => g.key) : []);
+    collapsedByStatus.set(status, next);
+    setCollapsed(next);
+  };
+
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
-    for (const g of groupByDay(items)) {
+    for (const g of days) {
       const isCollapsed = collapsed.has(g.key);
       out.push({ key: `day-${g.key}`, kind: 'day', day: g.key, label: g.label, photos: g.items, collapsed: isCollapsed });
       if (!isCollapsed) for (const photos of chunk(g.items, COLUMNS)) out.push({ key: `row-${photos[0]!.photoId}`, kind: 'row', photos });
     }
     return out;
-  }, [items, collapsed]);
+  }, [days, collapsed]);
 
   const renderThumb = (item: Photo) => {
     const isPicked = picked.has(item.photoId);
@@ -279,11 +289,18 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
             {loading ? 'Loading…' : subtitle ? subtitle(items, count) : `${count}${countKnown ? '' : '+'}`}
           </Text>
         </View>
-        {renderBar && items.length > 0 && (
-          <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8} testID="grid-select">
-            <Text style={styles.headerAction}>{selecting ? 'Done' : 'Select'}</Text>
-          </Pressable>
-        )}
+        <View style={styles.headerActions}>
+          {days.length > 1 && (
+            <Pressable onPress={() => setAllCollapsed(anyOpen)} hitSlop={8} testID="grid-collapse-all">
+              <Text style={styles.headerAction}>{anyOpen ? 'Collapse all' : 'Expand all'}</Text>
+            </Pressable>
+          )}
+          {renderBar && items.length > 0 && (
+            <Pressable onPress={() => (selecting ? endSelecting() : setSelecting(true))} hitSlop={8} testID="grid-select">
+              <Text style={styles.headerAction}>{selecting ? 'Done' : 'Select'}</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
       {headerExtra}
       <FlatList
@@ -375,6 +392,7 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
   subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  headerActions: { flexDirection: 'row', gap: 18 },
   headerAction: { color: colors.accent, fontWeight: '600', paddingBottom: 4 },
   list: { flexGrow: 1, paddingBottom: 8 },
   day: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, paddingBottom: 8 },

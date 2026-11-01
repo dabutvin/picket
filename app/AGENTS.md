@@ -65,7 +65,7 @@ has no device either. So UI work follows a loop that needs neither:
    Two real defects were caught this way on the first run (a wrapping button label and a
    font fallback), so do not skip it.
 3. **Extend `scripts/ui-screenshots.mjs` for every new screen or state.** It drives the app
-   through `testID`s (`tab-<key>` for review/picks/library/settings, `library-sent`/`library-skipped`, `thumb-<photoId>`, `grid-select`, `detail-close`,
+   through `testID`s (`tab-<key>` for review/picks/library/settings, `library-sent`/`library-skipped`, `thumb-<photoId>`, `grid-select`, `grid-collapse-all`, `detail-close`,
    `picks-send-all`, `picks-send-one`, `demo-enter`, `demo-leave`); add a `testID` to anything
    the script must tap and a `shot(name, caption)` for each state worth seeing. The script
    exits non-zero on any uncaught page error, so it is also the web smoke test. Its

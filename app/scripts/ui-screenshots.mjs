@@ -142,6 +142,12 @@ await shot('07-library-sent', 'Library → Sent: everything Lightroom has');
 await byId('library-skipped').click();
 await settle(1500);
 await shot('08-library-skipped', 'Library → Skipped');
+await byId('grid-collapse-all').click();
+await settle(500);
+if (!(await page.getByText('Expand all', { exact: true }).isVisible())) throw new Error('Collapse all did not collapse every day');
+await shot('08a-library-skipped-collapsed', 'Library → Skipped: Collapse all (just the days and their counts)');
+await byId('grid-collapse-all').click(); // Expand all
+await settle(500);
 await byId('tab-settings').click();
 await settle(1200);
 await shot('09-settings', 'Settings: camera / receiver settings at the top (sample-photos mode)');
