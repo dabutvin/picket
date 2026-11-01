@@ -19,6 +19,8 @@ export interface Photo {
   status: PhotoStatus;
   capturedAt: string;
   uploadedAt: string;
+  /** Set each time the preview Lambda (re)writes the previews; versions the image cache key. */
+  processedAt?: string;
   decidedAt?: string;
   rawKey: string;
   fileName: string;

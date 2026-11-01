@@ -23,6 +23,8 @@ export class ApiError extends Error {
 }
 
 export interface Api {
+  /** Names this backend's on-device cache (the API URL; "demo" for sample photos, which is never saved). */
+  readonly cacheId: string;
   list(status: PhotoStatus, limit?: number, cursor?: string): Promise<PhotoPage>;
   decide(photoId: string, decision: Decision): Promise<Photo>;
   /** Send one pick to Lightroom, or retry / nudge one that failed or is stuck on queued. */
@@ -76,6 +78,7 @@ export function createApi({ apiUrl, token }: Settings): Api {
     call<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
 
   return {
+    cacheId: apiUrl,
     list(status, limit = 30, cursor) {
       const q = new URLSearchParams({ status, limit: String(limit) });
       if (cursor) q.set('cursor', cursor);

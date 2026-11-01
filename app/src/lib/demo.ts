@@ -25,13 +25,15 @@ function samplePhoto(n: number, status: PhotoStatus, lightroom?: LightroomInfo):
   const seed = `picket-${n}`;
   const minute = String((n * 7) % 60).padStart(2, '0');
   const hour = String(9 + Math.floor(n / 4)).padStart(2, '0');
-  const day = n <= 4 ? '29' : n <= 12 ? '30' : '31';
-  const capturedAt = `2026-10-${day}T${hour}:${minute}:${String((n * 13) % 60).padStart(2, '0')}`;
+  // The first 54 sit on Oct 29-31; the long Skipped backlog spreads over the earlier days of October.
+  const day = n <= 4 ? '29' : n <= 12 ? '30' : n <= 54 ? '31' : String(1 + (n % 28)).padStart(2, '0');
+  const time = n <= 54 ? `${hour}:${minute}` : `${String(8 + (n % 12)).padStart(2, '0')}:${minute}`;
+  const capturedAt = `2026-10-${day}T${time}:${String((n * 13) % 60).padStart(2, '0')}`;
   return {
     photoId: `demo-${String(n).padStart(2, '0')}`,
     status,
     capturedAt,
-    uploadedAt: `2026-10-${day}T${hour}:${minute}:30Z`,
+    uploadedAt: `2026-10-${day}T${time}:30Z`,
     decidedAt: status === 'unreviewed' ? undefined : `2026-10-30T18:${minute}:00Z`,
     rawKey: `raw/2026/10/30/DSC0${3800 + n}.ARW`,
     fileName: `DSC0${3800 + n}.ARW`,
@@ -74,6 +76,8 @@ function seedPhotos(): Photo[] {
   photos.push(samplePhoto(18, 'reject'));
   // A queue longer than one page (Review loads 30 at a time), so totals come from /stats.
   for (let n = 19; n <= 54; n++) photos.push(samplePhoto(n, 'unreviewed'));
+  // A Skipped backlog of a few pages (the store syncs 100 at a time) across most of October.
+  for (let n = 55; n <= 294; n++) photos.push(samplePhoto(n, 'reject'));
   return photos;
 }
 
@@ -132,6 +136,7 @@ export function createDemoApi(): Api {
   });
 
   return {
+    cacheId: 'demo',
     async list(status, limit = 30, cursor) {
       await wait(LATENCY_MS);
       const all = [...photos.values()].filter((p) => p.status === status).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
