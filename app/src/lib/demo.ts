@@ -1,4 +1,4 @@
-import type { Api } from './api';
+import { ApiError, type Api } from './api';
 import type { LightroomInfo, LightroomStatusView, Photo, PhotoStatus, ReceiverSettings, Stats } from './types';
 
 /**
@@ -83,8 +83,15 @@ function seedPhotos(): Photo[] {
 
 export const DEMO_EMAIL = 'sample@example.com';
 
+/** Web preview only: `?expired-urls` starts Skipped with dead thumbnail URLs, to exercise the refresh path. */
+const EXPIRED_URLS = typeof globalThis.location?.search === 'string' && globalThis.location.search.includes('expired-urls');
+
 export function createDemoApi(): Api {
   const photos = new Map(seedPhotos().map((p) => [p.photoId, p]));
+  const realUrls = new Map([...photos.values()].map((p) => [p.photoId, { thumbUrl: p.thumbUrl, previewUrl: p.previewUrl }]));
+  if (EXPIRED_URLS) {
+    for (const p of photos.values()) if (p.status === 'reject') photos.set(p.photoId, { ...p, thumbUrl: `https://picket.invalid/${p.thumbKey}` });
+  }
   let connected = true;
   let receiver: ReceiverSettings = {
     host: 'ftp.picket.photos',
@@ -98,8 +105,11 @@ export function createDemoApi(): Api {
   };
 
   const now = () => new Date().toISOString();
+  // Like the API, every write stamps changedAt, which orders the change feed.
+  let lastChange = 0;
+  const changeStamp = () => new Date((lastChange = Math.max(Date.now(), lastChange + 1))).toISOString();
   const update = (id: string, patch: Partial<Photo>): Photo => {
-    const next = { ...photos.get(id)!, ...patch };
+    const next = { ...photos.get(id)!, ...patch, changedAt: changeStamp() };
     photos.set(id, next);
     return next;
   };
@@ -137,6 +147,26 @@ export function createDemoApi(): Api {
 
   return {
     cacheId: 'demo',
+    async changes(since, cursor) {
+      await wait(LATENCY_MS);
+      if (typeof globalThis.location?.search === 'string' && globalThis.location.search.includes('no-feed')) {
+        throw new ApiError(404, 'no route GET /photos/changes');
+      }
+      const until = new Date().toISOString();
+      if (!since) return { items: [], until };
+      const all = [...photos.values()].filter((p) => p.changedAt && p.changedAt > since).sort((a, b) => a.changedAt!.localeCompare(b.changedAt!));
+      const start = cursor ? Number(cursor) : 0;
+      return { items: all.slice(start, start + 100), cursor: start + 100 < all.length ? String(start + 100) : undefined, until };
+    },
+    async urls(photoIds) {
+      await wait(LATENCY_MS);
+      const out: Record<string, { thumbUrl: string; previewUrl: string }> = {};
+      for (const id of photoIds) {
+        const real = realUrls.get(id);
+        if (real) out[id] = real;
+      }
+      return { photos: out };
+    },
     async list(status, limit = 30, cursor) {
       await wait(LATENCY_MS);
       const all = [...photos.values()].filter((p) => p.status === status).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));

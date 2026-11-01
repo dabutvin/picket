@@ -23,6 +23,8 @@ interface Props {
   onZoomChange?: (zoomed: boolean) => void;
   /** Pinching in from the fitted photo and letting go: "zoom out" past the photo (Review opens its grid). */
   onPinchOut?: () => void;
+  /** The image failed to load (an expired or missing signed URL). */
+  onError?: () => void;
   testID?: string;
 }
 
@@ -31,7 +33,7 @@ interface Props {
  * zoomed the single-finger pan is disabled, so the card's flick and the carousel's browse
  * gestures around it keep working; pinch is two fingers and never collides with them.
  */
-export function ZoomableImage({ uri, cacheKey, placeholder, style, onZoomChange, onPinchOut, testID }: Props) {
+export function ZoomableImage({ uri, cacheKey, placeholder, style, onZoomChange, onPinchOut, onError, testID }: Props) {
   const [zoomed, setZoomed] = useState(false);
   const width = useSharedValue(0);
   const height = useSharedValue(0);
@@ -161,7 +163,7 @@ export function ZoomableImage({ uri, cacheKey, placeholder, style, onZoomChange,
         }}
       >
         <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
-          <Image source={{ uri, cacheKey }} placeholder={placeholder ? { uri: placeholder } : undefined} contentFit="contain" transition={120} style={styles.image} cachePolicy="memory-disk" />
+          <Image source={{ uri, cacheKey }} onError={onError} placeholder={placeholder ? { uri: placeholder } : undefined} contentFit="contain" transition={120} style={styles.image} cachePolicy="memory-disk" />
         </Animated.View>
       </Animated.View>
     </GestureDetector>

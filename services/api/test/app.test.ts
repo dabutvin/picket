@@ -137,6 +137,63 @@ describe('POST /lightroom/send (batch)', () => {
   });
 });
 
+describe('GET /photos/changes', () => {
+  it('without since, only returns the server time to start from', async () => {
+    const d = deps();
+    const before = Date.now();
+    const r = await createApp(d)(ev('GET /photos/changes'));
+    expect(r.statusCode).toBe(200);
+    const b = body(r);
+    expect(b.items).toEqual([]);
+    expect(Date.parse(b.until)).toBeGreaterThanOrEqual(before - 5);
+    expect(d.store.listChanges).not.toHaveBeenCalled();
+  });
+
+  it('returns changed rows with fresh URLs, normalizing since to the stored format', async () => {
+    const d = deps();
+    const r = await createApp(d)(ev('GET /photos/changes', { queryStringParameters: { since: '2026-11-01T09:00:00Z', limit: '1' } }));
+    expect(r.statusCode).toBe(200);
+    expect(d.store.listChanges).toHaveBeenCalledWith('2026-11-01T09:00:00.000Z', 1, undefined);
+    const b = body(r);
+    expect(b.items.map((p: { photoId: string }) => p.photoId)).toEqual(['a']);
+    expect(b.items[0].thumbUrl).toBe('https://s3/thumbs/a.jpg?ttl=3600');
+    expect(b.cursor).toBe('next');
+    expect(typeof b.until).toBe('string');
+  });
+
+  it('caps limit at 100 and rejects a bad since, limit or cursor', async () => {
+    const d = deps();
+    const app = createApp(d);
+    await app(ev('GET /photos/changes', { queryStringParameters: { since: '2026-11-01T09:00:00Z', limit: '5000' } }));
+    expect(d.store.listChanges).toHaveBeenLastCalledWith('2026-11-01T09:00:00.000Z', 100, undefined);
+    expect((await app(ev('GET /photos/changes', { queryStringParameters: { since: 'yesterday' } }))).statusCode).toBe(400);
+    expect((await app(ev('GET /photos/changes', { queryStringParameters: { since: '2026-11-01T09:00:00Z', limit: '0' } }))).statusCode).toBe(400);
+    expect((await app(ev('GET /photos/changes', { queryStringParameters: { since: '2026-11-01T09:00:00Z', cursor: 'bad' } }))).statusCode).toBe(400);
+  });
+});
+
+describe('POST /photos/urls', () => {
+  it('signs thumb and preview URLs for the photos that exist', async () => {
+    const d = deps();
+    const r = await createApp(d)(ev('POST /photos/urls', { body: JSON.stringify({ photoIds: ['a', 'zz', 'b'] }) }));
+    expect(r.statusCode).toBe(200);
+    expect(body(r).photos).toEqual({
+      a: { thumbUrl: 'https://s3/thumbs/a.jpg?ttl=3600', previewUrl: 'https://s3/previews/a.jpg?ttl=3600' },
+      b: { thumbUrl: 'https://s3/thumbs/b.jpg?ttl=3600', previewUrl: 'https://s3/previews/b.jpg?ttl=3600' },
+    });
+  });
+
+  it('400s on a bad body or too many ids, and never signs a RAW', async () => {
+    const d = deps();
+    const app = createApp(d);
+    expect((await app(ev('POST /photos/urls', { body: 'nope' }))).statusCode).toBe(400);
+    expect((await app(ev('POST /photos/urls', { body: '{"photoIds":[1]}' }))).statusCode).toBe(400);
+    expect((await app(ev('POST /photos/urls', { body: JSON.stringify({ photoIds: Array.from({ length: 101 }, (_, i) => `p${i}`) }) }))).statusCode).toBe(400);
+    await app(ev('POST /photos/urls', { body: '{"photoIds":["a"]}' }));
+    for (const call of (d.store.signGet as ReturnType<typeof vi.fn>).mock.calls) expect(String(call[0])).not.toMatch(/^raw\//);
+  });
+});
+
 describe('GET /stats', () => {
   it('counts every status', async () => {
     const r = await createApp(deps())(ev('GET /stats'));

@@ -95,6 +95,7 @@ export class Api extends Construct {
         PHOTOS_BUCKET: props.bucket.bucketName,
         STATUS_INDEX: 'byStatus',
         LIGHTROOM_INDEX: 'byLightroomStatus',
+        CHANGE_INDEX: 'byChange',
         LIGHTROOM_SECRET_ARN: props.lightroomConnection.secretArn,
         LIGHTROOM_CLIENT_ID: props.lightroom.clientId,
         LIGHTROOM_SCOPES: props.lightroom.scopes.join(','),
@@ -161,6 +162,8 @@ export class Api extends Construct {
     // Pairing is the one route without the bearer token: it exchanges a one-time code for it.
     http.addRoutes({ path: '/pair', methods: [apigw.HttpMethod.POST], integration, authorizer: new apigw.HttpNoneAuthorizer() });
     http.addRoutes({ path: '/photos', methods: [apigw.HttpMethod.GET], integration });
+    http.addRoutes({ path: '/photos/changes', methods: [apigw.HttpMethod.GET], integration });
+    http.addRoutes({ path: '/photos/urls', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/photos/{id}/decision', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/photos/{id}/lightroom', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/stats', methods: [apigw.HttpMethod.GET], integration });

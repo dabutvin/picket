@@ -154,6 +154,7 @@ export const handler = (() => {
       tableName: env('PHOTOS_TABLE'),
       statusIndex: process.env.STATUS_INDEX ?? 'byStatus',
       lightroomIndex: process.env.LIGHTROOM_INDEX ?? 'byLightroomStatus',
+      changeIndex: process.env.CHANGE_INDEX ?? 'byChange',
       bucket,
     }),
     connections: createSecretsConnectionStore(env('LIGHTROOM_SECRET_ARN')),

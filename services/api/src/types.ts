@@ -46,6 +46,14 @@ export interface PhotoItem {
   /** Duplicated top-level for the byLightroomStatus index. */
   lightroomStatus?: LightroomStatus;
   lightroom?: LightroomInfo;
+  /**
+   * When anything about the row last changed (a decision, a Lightroom update, a re-processed
+   * frame), as JavaScript's toISOString(). With `feed` it keys the byChange index the app's
+   * incremental sync reads. Rows untouched since before it existed have neither.
+   */
+  changedAt?: string;
+  /** Constant partition key ("photos") for the byChange index. */
+  feed?: string;
 }
 
 /** What the app receives: the item plus short-lived URLs. */
@@ -57,6 +65,19 @@ export interface Photo extends PhotoItem {
 export interface PhotoPage {
   items: Photo[];
   cursor?: string;
+}
+
+/** GET /photos/changes: rows changed after `since`, oldest change first. */
+export interface ChangesPage {
+  items: Photo[];
+  cursor?: string;
+  /** Server time taken before the query; the next call's `since` (minus an overlap). */
+  until: string;
+}
+
+/** POST /photos/urls: fresh signed URLs for photos whose cached ones expired. */
+export interface UrlsResult {
+  photos: Record<string, { thumbUrl: string; previewUrl: string }>;
 }
 
 export interface Stats {

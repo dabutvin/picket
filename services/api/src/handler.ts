@@ -10,6 +10,7 @@ export const handler = createApp({
     tableName: env('PHOTOS_TABLE'),
     statusIndex: process.env.STATUS_INDEX ?? 'byStatus',
     lightroomIndex: process.env.LIGHTROOM_INDEX ?? 'byLightroomStatus',
+    changeIndex: process.env.CHANGE_INDEX ?? 'byChange',
     bucket: env('PHOTOS_BUCKET'),
   }),
   connections: createSecretsConnectionStore(env('LIGHTROOM_SECRET_ARN')),

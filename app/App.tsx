@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -40,11 +40,18 @@ export default function App() {
   const api = useMemo(() => (demo ? createDemoApi() : settings ? createApi(settings) : null), [demo, settings]);
   const activeTab: Tab = api ? tab : 'settings';
 
-  // Fill the Skipped / Sent / Picks caches in the background once Review has had its turn.
+  // Bring the Skipped / Sent / Picks caches up to date once Review has had its turn, and again
+  // whenever the app comes back to the foreground (another phone may have changed things).
   useEffect(() => {
     if (!api) return;
     const t = setTimeout(() => void warm(api), 2500);
-    return () => clearTimeout(t);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void warm(api);
+    });
+    return () => {
+      clearTimeout(t);
+      sub.remove();
+    };
   }, [api]);
 
   return (

@@ -6,6 +6,10 @@ Node 22 Lambdas (arm64). Three entry points share one codebase:
 - `src/router.ts`   Photos table stream → SQS when a row becomes `lightroomStatus = queued`
 - `src/uploader.ts` SQS → S3 RAW → Lightroom catalog (`src/adobe.ts` is the IMS/Lightroom client); marks the photo `sent` when done
 
+Every row write stamps `changedAt` / `feed`, which the `byChange` index turns into the change
+feed `GET /photos/changes` serves; `POST /photos/urls` re-signs previews and thumbs the app
+already has (ADR-009).
+
 A pick is queued only by `POST /lightroom/send` or `POST /photos/{id}/lightroom` (the app's
 Send to Lightroom), never by the decision route (ADR-008).
 
