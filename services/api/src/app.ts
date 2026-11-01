@@ -4,6 +4,7 @@ import { ensureAccessToken, type ConnectionStore } from './connection.js';
 import { BadCursor, type Store } from './store.js';
 import { BadPassword, type createReceiverService } from './receiver.js';
 import { redeemPairingCode, type PairingStore } from './pairing.js';
+import { isDeviceToken, type NotificationService } from './notifications.js';
 import {
   DECISIONS,
   LIGHTROOM_STATUSES,
@@ -45,6 +46,8 @@ export interface AppDeps {
   /** Absent when the stack was deployed without the receiver. */
   receiver?: ReturnType<typeof createReceiverService>;
   pairing: PairingStore;
+  /** Push notifications for new photos. Absent in tests and stacks without the Notify table. */
+  notifications?: NotificationService;
   fetchFn?: FetchFn;
 }
 
@@ -71,7 +74,7 @@ const parseBody = <T>(event: APIGatewayProxyEventV2): T | undefined => {
   }
 };
 
-export function createApp({ store, connections, lightroom, receiver, pairing, fetchFn = fetch }: AppDeps) {
+export function createApp({ store, connections, lightroom, receiver, pairing, notifications, fetchFn = fetch }: AppDeps) {
   async function withUrls(item: PhotoItem): Promise<Photo> {
     const [previewUrl, thumbUrl] = await Promise.all([
       store.signGet(item.previewKey, PREVIEW_URL_TTL),
@@ -331,6 +334,28 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
     return json(200, await receiver.power(body.action));
   }
 
+  /** A phone's APNs device token; registering again (every launch) just refreshes it. */
+  async function registerDevice(event: APIGatewayProxyEventV2): Promise<Result> {
+    if (!notifications) return error(404, 'notifications are not set up on this stack');
+    const body = parseBody<{ token?: unknown; name?: unknown }>(event);
+    if (!body || !isDeviceToken(body.token)) return error(400, 'token must be an APNs device token (hex)');
+    const name = typeof body.name === 'string' ? body.name.slice(0, 80) : undefined;
+    return json(200, await notifications.register(body.token.toLowerCase(), name));
+  }
+
+  async function unregisterDevice(event: APIGatewayProxyEventV2): Promise<Result> {
+    if (!notifications) return error(404, 'notifications are not set up on this stack');
+    const token = event.pathParameters?.token;
+    if (!isDeviceToken(token)) return error(400, 'token must be an APNs device token (hex)');
+    await notifications.unregister(token.toLowerCase());
+    return json(200, { ok: true });
+  }
+
+  async function testNotification(): Promise<Result> {
+    if (!notifications) return error(404, 'notifications are not set up on this stack');
+    return json(200, await notifications.test());
+  }
+
   /** The only unauthenticated route: swap a one-time pairing code for the bearer token. */
   async function pair(event: APIGatewayProxyEventV2): Promise<Result> {
     const body = parseBody<{ code?: unknown }>(event);
@@ -376,6 +401,12 @@ export function createApp({ store, connections, lightroom, receiver, pairing, fe
           return await refreshConnection();
         case 'DELETE /lightroom':
           return await disconnect();
+        case 'POST /devices':
+          return await registerDevice(event);
+        case 'DELETE /devices/{token}':
+          return await unregisterDevice(event);
+        case 'POST /notifications/test':
+          return await testNotification();
         default:
           return error(404, `no route ${event.routeKey}`);
       }

@@ -44,10 +44,14 @@ const dns = domainName
 /** `-c receiver=false` deploys everything except the EC2 receiver (e.g. while a new AWS account is still blocked from EC2). */
 const receiver = String(ctx('receiver', 'PICKET_RECEIVER') ?? 'true') !== 'false';
 
+/** iOS bundle id (app/app.json expo.ios.bundleIdentifier): the topic of every push. */
+const bundleId = ctx('bundleId', 'PICKET_BUNDLE_ID') ?? 'com.danbut.picket';
+
 new PicketStack(app, 'Picket', {
   lightroom,
   dns,
   receiver,
+  bundleId,
   // Region/account come from the CLI profile (`cdk deploy --profile ...`).
   // Pin them here if you want `cdk synth` to produce an environment-specific template.
   env: {

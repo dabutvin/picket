@@ -10,6 +10,7 @@ import { createApi, type Api } from './src/lib/api';
 import type { Stats } from './src/lib/types';
 import { createDemoApi } from './src/lib/demo';
 import { warm } from './src/lib/photoStore';
+import { onNotificationOpened, registerForPush, setAppBadge, type PushState } from './src/lib/push';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
@@ -43,6 +44,8 @@ const badgeText = (n: number) => (n > 99 ? '99+' : String(n));
 
 /** Start in sample-photos mode (no server): the UI-preview workflow exports the web build with this set. */
 const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_PICKET_DEMO === '1';
+/** Sample photos simulate a phone that already has notifications on. */
+const DEMO_PUSH: PushState = { status: 'on', serverReady: true };
 
 export default function App() {
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
@@ -81,6 +84,24 @@ export default function App() {
     const t = setInterval(refreshStats, STATS_POLL_MS);
     return () => clearInterval(t);
   }, [api, refreshStats, activeTab]);
+
+  // New-photo notifications: ask once a server is paired (the prompt only ever shows once), then
+  // re-register on every launch so a rotated token reaches the server. Sample photos simulate it.
+  const [registered, setRegistered] = useState<PushState | null>(null);
+  const push: PushState | null = demo ? DEMO_PUSH : registered;
+  const enablePush = useCallback(
+    (ask: boolean) => {
+      if (api && !demo) void registerForPush(api, { ask }).then(setRegistered);
+    },
+    [api, demo],
+  );
+  useEffect(() => enablePush(true), [enablePush]);
+  const openReview = useCallback(() => setTab('review'), []);
+  useEffect(() => onNotificationOpened(openReview), [openReview]);
+  const unreviewed = stats?.photos.unreviewed;
+  useEffect(() => {
+    if (unreviewed !== undefined && !demo) setAppBadge(unreviewed);
+  }, [unreviewed, demo]);
 
   const badges: Partial<Record<Tab, { count: number; alert?: boolean }>> = stats
     ? {
@@ -121,6 +142,8 @@ export default function App() {
               initial={settings ?? null}
               api={api}
               demo={demo}
+              push={push}
+              onEnablePush={() => enablePush(true)}
               onDemo={(on) => {
                 setDemo(on);
                 setTab(on ? 'review' : 'settings');

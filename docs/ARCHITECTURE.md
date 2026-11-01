@@ -69,6 +69,14 @@ An S3 `ObjectCreated` notification on `raw/` invokes `services/preview`
 idempotent. A re-upload with the same name on the same day replaces previews
 but keeps an existing decision.
 
+### 2b. New-photo notifications
+
+Every 5 minutes the **notifier** Lambda (`services/api/src/notifier.ts`) looks at the photos still
+`unreviewed`. Once a burst of uploads has been quiet for 3 minutes (or has run for 30), it pushes
+"N new photos to review" to every phone registered in the `Notify` table, straight to Apple's
+APNs with the team's auth key, and sets the icon badge to the unreviewed count. The app
+registers its APNs device token with `POST /devices` on launch. See ADR-010.
+
 ### 3. Review (first triage) and Picks (the send step)
 
 `app/` is an Expo (React Native, TypeScript) app. The Review screen loads

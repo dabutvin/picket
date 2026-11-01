@@ -226,6 +226,14 @@ export function createDemoApi(): Api {
       connected = false;
       return lightroomView();
     },
+    async registerDevice() {
+      await wait(LATENCY_MS);
+      return { configured: true, devices: 1 };
+    },
+    async testNotification() {
+      await wait(LATENCY_MS);
+      return { configured: true, attempted: 1, delivered: 1, removed: 0 };
+    },
     async receiver() {
       await wait(LATENCY_MS);
       return receiver;

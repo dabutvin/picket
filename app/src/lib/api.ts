@@ -45,6 +45,23 @@ export interface Api {
   receiver(): Promise<ReceiverSettings>;
   rotateReceiverPassword(password?: string): Promise<ReceiverSettings>;
   receiverPower(action: ReceiverPowerAction): Promise<ReceiverSettings>;
+  /** Register this phone's APNs device token for new-photo notifications (idempotent). */
+  registerDevice(token: string): Promise<DeviceRegistration>;
+  /** Push a test notification to every registered phone. */
+  testNotification(): Promise<TestNotificationResult>;
+}
+
+export interface DeviceRegistration {
+  /** The server has an APNs key; without one nothing is sent yet. */
+  configured: boolean;
+  devices: number;
+}
+
+export interface TestNotificationResult {
+  configured: boolean;
+  attempted: number;
+  delivered: number;
+  removed: number;
 }
 
 /** Exchange a one-time pairing code (from the deploy / ops summary) for the API token. No auth. */
@@ -108,5 +125,7 @@ export function createApi({ apiUrl, token }: Settings): Api {
     receiver: () => call<ReceiverSettings>('/receiver'),
     rotateReceiverPassword: (password) => post<ReceiverSettings>('/receiver/password', password ? { password } : {}),
     receiverPower: (action) => post<ReceiverSettings>('/receiver/power', { action }),
+    registerDevice: (deviceToken) => post<DeviceRegistration>('/devices', { token: deviceToken }),
+    testNotification: () => post<TestNotificationResult>('/notifications/test'),
   };
 }

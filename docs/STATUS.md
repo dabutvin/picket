@@ -15,6 +15,11 @@ TestFlight. The system is in normal use; what follows is upkeep and polish.
 
 ## Resume here
 
+- **New-photo notifications (ADR-010) need the APNs key** before they send anything:
+  `docs/OPERATIONS.md` → *Notifications*, then `deploy` and an `app-build` (production,
+  TestFlight). The first build after this change also regenerates the provisioning profile
+  with the Push Notifications capability. Check with Settings → Notifications → Send a test
+  notification, then shoot a few frames and expect one push 3–8 minutes after the last.
 0. ~~Deploy and build #25~~ Done 2026-10-31 17:24Z: `deploy` #16 (Lambda
    only) and `app-build` #7 → EAS build 3 → TestFlight, auto-submitted. The
    app now has a Review carousel (left/right browse, flick up = pick, flick

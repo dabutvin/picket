@@ -232,3 +232,29 @@ launch, on returning to the foreground, on every tab open and every 2.5 s during
 changes from another phone (Elise's) show up within seconds. The saved lists are metadata only,
 about 0.4 KB a photo. Pull-to-refresh still reloads a tab in full, as a safety valve. A sign-out
 or a cache-format change costs one full load per tab.
+
+## ADR-010: New-photo notifications go straight to APNs, one per burst
+
+**Context.** Photos arrive from the camera a few seconds apart for as long as a shoot lasts, and
+nobody wants a buzz per frame. The app is iOS only and is built with local signing credentials
+(ADR-007), so Expo's push service would need an APNs key uploaded to EAS anyway.
+
+**Decision.**
+- The app asks for notification permission once it is paired and registers the raw APNs device
+  token (`getDevicePushTokenAsync`) with `POST /devices` on every launch; tokens live in a small
+  `Notify` table (`pk = devices`, `sk = device#<token>`) next to one `state` row.
+- A notifier Lambda runs every 5 minutes. It reads the `uploadedAt` of every photo that is still
+  unreviewed and announces those newer than its watermark once the newest is 3 minutes old (the
+  burst is over), or once the oldest is 30 minutes old (a long shoot still hears every half hour).
+  One push: "N new photos to review", badge = all unreviewed. Photos already reviewed in the app
+  never count. The first run only sets the watermark, so turning this on announces no backlog.
+- Pushes go from the Lambda to `api.push.apple.com` over HTTP/2 with a token-based APNs key
+  (`{keyId, teamId, p8}` in a Secrets Manager secret the deploy fills from GitHub secrets). Apple's
+  410 / `BadDeviceToken` answers delete the token.
+- The bundle id gets the Push Notifications capability through the App Store Connect API in
+  `apple-signing.mjs`, which recreates the profile once so it carries the entitlement.
+
+**Consequences.** A notification lands 3 to 8 minutes after the last frame of a burst. Nothing
+third-party sits in the path. The APNs key is one manual step: Apple's API cannot create it.
+Without it everything still deploys and the notifier only moves its watermark. The app also
+keeps the icon badge equal to the Review count while it is open.

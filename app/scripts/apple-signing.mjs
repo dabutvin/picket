@@ -7,7 +7,7 @@
  * script owns the whole chain and hands EAS a credentials.json ("credentialsSource": "local"):
  *
  *   1. iOS Distribution certificate  (reused while valid; private key kept in AWS Secrets Manager)
- *   2. bundle id registration
+ *   2. bundle id registration, with the capabilities the app's entitlements need (Push Notifications)
  *   3. device registration            (UDIDs from `eas device:list --json` and/or $UDIDS)
  *   4. ad hoc (or App Store) provisioning profile, recreated when devices/cert change
  *   5. ios/certs/dist.p12 + ios/certs/profile.mobileprovision + credentials.json
@@ -28,6 +28,12 @@ import { join } from 'node:path';
 
 const ASC = 'https://api.appstoreconnect.apple.com/v1';
 const PROFILE_TYPES = { adhoc: 'IOS_APP_ADHOC', appstore: 'IOS_APP_STORE' };
+/**
+ * Capabilities the bundle id must have. A profile carries the capabilities its bundle id had when it
+ * was created, so adding one here also recreates the profile (tracked as state.profileCapabilities).
+ * PUSH_NOTIFICATIONS: expo-notifications adds the aps-environment entitlement (ADR-010).
+ */
+const CAPABILITIES = ['PUSH_NOTIFICATIONS'];
 
 // ----------------------------------------------------------------------------- helpers
 
@@ -226,6 +232,15 @@ async function ensure({ type }) {
     bundle = (await asc.call('POST', '/bundleIds', { data: { type: 'bundleIds', attributes: { identifier: bundleId, name: appName, platform: 'IOS' } } })).data;
     report.bundleIdCreated = true;
   }
+  const enabled = new Set((await asc.list(`/bundleIds/${bundle.id}/bundleIdCapabilities`)).map((c) => c.attributes.capabilityType));
+  for (const capabilityType of CAPABILITIES) {
+    if (enabled.has(capabilityType)) continue;
+    log(`enabling ${capabilityType} on ${bundleId}`);
+    await asc.call('POST', '/bundleIdCapabilities', {
+      data: { type: 'bundleIdCapabilities', attributes: { capabilityType }, relationships: { bundleId: { data: { type: 'bundleIds', id: bundle.id } } } },
+    });
+    report.capabilitiesEnabled = [...(report.capabilitiesEnabled ?? []), capabilityType];
+  }
 
   // 3. devices (ad hoc only) --------------------------------------------------------------
   let deviceIds = [];
@@ -254,8 +269,9 @@ async function ensure({ type }) {
   // 4. provisioning profile -------------------------------------------------------------
   const profileName = `${appName} ${type === 'adhoc' ? 'Ad Hoc' : 'App Store'}`;
   const sameDevices = JSON.stringify(state.profileDeviceIds ?? []) === JSON.stringify(deviceIds);
+  const sameCapabilities = JSON.stringify(state.profileCapabilities ?? []) === JSON.stringify(CAPABILITIES);
   let profile;
-  if (state.profileId && state.profileType === profileType && state.profileCertificateId === cert.id && sameDevices) {
+  if (state.profileId && state.profileType === profileType && state.profileCertificateId === cert.id && sameDevices && sameCapabilities) {
     try {
       const got = await asc.call('GET', `/profiles/${state.profileId}`);
       if (got.data.attributes.profileState === 'ACTIVE' && new Date(got.data.attributes.expirationDate) > new Date(Date.now() + 7 * 86400e3)) profile = got.data;
@@ -287,6 +303,7 @@ async function ensure({ type }) {
     state.profileType = profileType;
     state.profileCertificateId = cert.id;
     state.profileDeviceIds = deviceIds;
+    state.profileCapabilities = CAPABILITIES;
     state.profileContent = profile.attributes.profileContent;
     report.profileCreated = true;
   }

@@ -4,6 +4,8 @@ import { env, lightroomConfigFromEnv } from './config.js';
 import { createStore } from './store.js';
 import { createReceiverCloud, createReceiverService } from './receiver.js';
 import { createPairingStore } from './pairing.js';
+import { createDynamoDeviceStore, createNotificationService } from './notifications.js';
+import { cachedPush } from './notifier.js';
 
 export const handler = createApp({
   store: createStore({
@@ -16,6 +18,9 @@ export const handler = createApp({
   connections: createSecretsConnectionStore(env('LIGHTROOM_SECRET_ARN')),
   lightroom: lightroomConfigFromEnv(),
   pairing: createPairingStore(env('PAIRING_SECRET_ARN'), env('TOKEN_SECRET_ARN')),
+  notifications: process.env.NOTIFY_TABLE
+    ? createNotificationService(createDynamoDeviceStore(process.env.NOTIFY_TABLE), cachedPush(process.env.APNS_SECRET_ARN, env('APNS_TOPIC')))
+    : undefined,
   receiver: (() => {
     if (!process.env.RECEIVER_INSTANCE_ID) return undefined;
     const cfg = {

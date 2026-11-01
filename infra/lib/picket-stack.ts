@@ -5,6 +5,7 @@ import { Receiver } from './receiver';
 import { Processing } from './processing';
 import { Api } from './api';
 import { Lightroom, type LightroomSettings } from './lightroom';
+import { Notifications } from './notifications';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
@@ -27,6 +28,8 @@ export interface PicketStackProps extends cdk.StackProps {
   dns?: DnsSettings;
   /** Create the FTPS receiver instance (default true). */
   receiver?: boolean;
+  /** iOS bundle id, the APNs topic for new-photo notifications (default com.danbut.picket). */
+  bundleId?: string;
 }
 
 /**
@@ -75,6 +78,12 @@ export class PicketStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UploaderLogGroup', { value: lightroom.uploader.logGroup.logGroupName });
     new cdk.CfnOutput(this, 'UploadQueueUrl', { value: lightroom.queue.queueUrl });
 
+    const notifications = new Notifications(this, 'Notifications', {
+      bucket: storage.bucket,
+      table: storage.table,
+      bundleId: props.bundleId ?? 'com.danbut.picket',
+    });
+
     const api = new Api(this, 'Api', {
       bucket: storage.bucket,
       table: storage.table,
@@ -88,8 +97,11 @@ export class PicketStack extends cdk.Stack {
             : undefined
         : undefined,
       receiver,
+      notifications: { table: notifications.table, apnsKey: notifications.apnsKey, bundleId: props.bundleId ?? 'com.danbut.picket' },
     });
 
+    new cdk.CfnOutput(this, 'ApnsKeySecret', { value: notifications.apnsKey.secretName, description: 'deploy writes {keyId, teamId, p8} here from APNS_KEY_ID / APNS_KEY_P8' });
+    new cdk.CfnOutput(this, 'NotifierLogGroup', { value: notifications.notifier.logGroup.logGroupName });
     new cdk.CfnOutput(this, 'Bucket', { value: storage.bucket.bucketName });
     new cdk.CfnOutput(this, 'Table', { value: storage.table.tableName });
     new cdk.CfnOutput(this, 'ReceiverIp', { value: receiver?.publicIp ?? '(receiver not deployed)' });

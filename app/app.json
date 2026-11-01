@@ -40,7 +40,13 @@
         }
       ],
       "expo-sharing",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "enableRemoteNotifications": true
+        }
+      ]
     ],
     "scheme": [
       "picket",

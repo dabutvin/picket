@@ -21,6 +21,7 @@ them, rotates the password and starts or stops the receiver.
 | `EXPO_TOKEN` | secret | expo.dev → account → Access tokens. |
 | `APPLE_TEAM_ID` | secret | developer.apple.com → Membership details (10 characters). |
 | `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | secret | An App Store Connect **Team** API key with the **Admin** role: App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys → Generate. Paste the whole `.p8` file contents into `ASC_API_KEY_P8` (raw, `\n`-escaped or base64 all work); the Key ID is on that row, the Issuer ID at the top of the page. |
+| `APNS_KEY_P8`, `APNS_KEY_ID` | secret, optional | The APNs auth key for new-photo notifications (see *Notifications* below). Without them nothing is pushed. |
 | `NETLIFY_AUTH_TOKEN` | secret | Netlify → User settings → Applications → Personal access tokens. Lets `deploy` and `ops → dns` manage the DNS records for the domain. Without it the summary lists the records to add by hand. |
 | `AWS_REGION` | variable, optional | Defaults to `us-east-1`. |
 | `DOMAIN_NAME` | variable, optional | Defaults to `picket.photos`. |
@@ -167,6 +168,26 @@ Known limits:
 - An Android phone needs none of this: `app-build → build` with platform
   `android` installs straight from the EAS link.
 
+## Notifications (one-time APNs key)
+
+Picket pushes "N new photos to review" a few minutes after a burst from the camera ends
+(ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
+create one, so this is done once in a browser (a phone works):
+
+1. developer.apple.com → Account → Certificates, Identifiers & Profiles → **Keys** → **+**.
+2. Name it `Picket push`, tick **Apple Push Notifications service (APNs)**, Configure →
+   environment **Sandbox & Production**, key restriction **Team Scoped (All Topics)** → Save →
+   Continue → Register.
+3. **Download** the `.p8` (only possible once) and note the **Key ID**.
+4. GitHub → Settings → Secrets and variables → Actions: add `APNS_KEY_P8` (the file's contents;
+   raw, `\n`-escaped or base64 all work) and `APNS_KEY_ID`. `APPLE_TEAM_ID` is reused.
+5. Run `deploy`. Its summary says *New-photo notifications: on*.
+6. Install a build that has notifications (the first one after this change), open it, allow
+   notifications, then Settings → Notifications → **Send a test notification**.
+
+The `app-build` workflow turns on the Push Notifications capability for the bundle id and
+regenerates the profile by itself. The notifier logs to the `NotifierLogGroup` output.
+
 ## Runbook
 
 - **Camera says it can't connect**: app → Camera; if the receiver is stopped,
@@ -183,6 +204,11 @@ Known limits:
   accepts for proprietary raws); `LIGHTROOM_RAW_CONTENT_TYPE` as a repository
   variable overrides it, then `deploy`. Then tap **Retry upload** on the pick,
   or `redrive-dlq` if it reached the dead-letter queue.
+- **No notification after a shoot**: Settings → Notifications should say *On for this
+  phone* (if *Off in iOS Settings*, tap Open iOS Settings). **Send a test notification**: *no
+  APNs key* means step 4–5 above; *Apple refused the push* usually means a key or team id typo
+  (the notifier log has Apple's reason). A burst is announced once it has been quiet for 3
+  minutes, checked every 5, and only photos still unreviewed count.
 - **Change the camera password**: app → Camera → Set or Generate, then update
   the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
   Settings.
