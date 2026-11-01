@@ -7,6 +7,7 @@ import { colors } from './src/lib/theme';
 import { loadSettings, type Settings } from './src/lib/settings';
 import { createApi } from './src/lib/api';
 import { createDemoApi } from './src/lib/demo';
+import { warm } from './src/lib/photoStore';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { SentScreen } from './src/screens/SentScreen';
@@ -38,6 +39,13 @@ export default function App() {
 
   const api = useMemo(() => (demo ? createDemoApi() : settings ? createApi(settings) : null), [demo, settings]);
   const activeTab: Tab = api ? tab : 'settings';
+
+  // Fill the Skipped / Sent / Picks caches in the background once Review has had its turn.
+  useEffect(() => {
+    if (!api) return;
+    const t = setTimeout(() => void warm(api), 2500);
+    return () => clearTimeout(t);
+  }, [api]);
 
   return (
     <GestureHandlerRootView style={styles.root}>

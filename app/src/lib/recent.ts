@@ -1,4 +1,5 @@
 import type { Photo, PhotoStatus } from './types';
+import { applyDecision, applyPhoto } from './photoStore';
 
 /**
  * Decisions made in this session, overlaid on every list the API returns for the next while.
@@ -16,12 +17,15 @@ const recent = new Map<string, { photo: Photo; at: number }>();
 
 /** The user moved a photo to `status` (swipe, skip, pick again, undo). */
 export function noteDecision(photo: Photo, status: PhotoStatus): void {
-  recent.set(photo.photoId, { photo: { ...photo, status, decidedAt: new Date().toISOString() }, at: Date.now() });
+  const moved = { ...photo, status, decidedAt: new Date().toISOString() };
+  recent.set(photo.photoId, { photo: moved, at: Date.now() });
+  applyDecision(moved); // and move it between the cached tab lists, so they agree at once
 }
 
 /** The server returned a fresher photo (a send queued it); remember it as-is. */
 export function notePhoto(photo: Photo): void {
   recent.set(photo.photoId, { photo, at: Date.now() });
+  applyPhoto(photo);
 }
 
 const newer = (a: Photo, b: Photo) => (a.lightroom?.updatedAt ?? '') > (b.lightroom?.updatedAt ?? '');

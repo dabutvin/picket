@@ -15,6 +15,8 @@ const PINCH_OUT_AT = 0.82;
 
 interface Props {
   uri: string;
+  /** Stable disk-cache key (the URL is re-signed on every list call). */
+  cacheKey?: string;
   placeholder?: string;
   style?: StyleProp<ViewStyle>;
   /** Fires when the image crosses in or out of zoom, so the parents can hand over or take back their pans. */
@@ -29,7 +31,7 @@ interface Props {
  * zoomed the single-finger pan is disabled, so the card's flick and the carousel's browse
  * gestures around it keep working; pinch is two fingers and never collides with them.
  */
-export function ZoomableImage({ uri, placeholder, style, onZoomChange, onPinchOut, testID }: Props) {
+export function ZoomableImage({ uri, cacheKey, placeholder, style, onZoomChange, onPinchOut, testID }: Props) {
   const [zoomed, setZoomed] = useState(false);
   const width = useSharedValue(0);
   const height = useSharedValue(0);
@@ -159,7 +161,7 @@ export function ZoomableImage({ uri, placeholder, style, onZoomChange, onPinchOu
         }}
       >
         <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
-          <Image source={{ uri }} placeholder={placeholder ? { uri: placeholder } : undefined} contentFit="contain" transition={120} style={styles.image} cachePolicy="memory-disk" />
+          <Image source={{ uri, cacheKey }} placeholder={placeholder ? { uri: placeholder } : undefined} contentFit="contain" transition={120} style={styles.image} cachePolicy="memory-disk" />
         </Animated.View>
       </Animated.View>
     </GestureDetector>
