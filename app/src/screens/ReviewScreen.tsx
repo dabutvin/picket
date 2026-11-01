@@ -41,6 +41,10 @@ export function ReviewScreen({ api }: { api: Api }) {
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+  const exhaustedRef = useRef(exhausted);
+  useEffect(() => {
+    exhaustedRef.current = exhausted;
+  }, [exhausted]);
 
   const refreshStats = useCallback(() => {
     api.stats().then(
@@ -105,6 +109,9 @@ export function ReviewScreen({ api }: { api: Api }) {
       if (at < 0) return;
       setLast({ photo, decision, index: at });
       noteDecision(photo, decision);
+      // Deciding the last loaded photo with nothing more to load would leave the end page in
+      // view while earlier photos still wait; step back to the one before it instead.
+      if (exhaustedRef.current && at > 0 && at === queueRef.current.length - 1) setIndex(at - 1);
       setQueue((q) => q.filter((p) => p.photoId !== photo.photoId));
       setDecided((n) => n + 1);
       setRemaining((n) => (n === null ? n : Math.max(0, n - 1)));
