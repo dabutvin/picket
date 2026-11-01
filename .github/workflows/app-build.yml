@@ -7,8 +7,8 @@ name: app-build
 #                      App Store Connect API (state kept in AWS Secrets Manager), then runs EAS Build.
 #                      production/ios goes to TestFlight unless the testflight box is unticked
 #   submit           → sends the latest finished production iOS build on EAS to TestFlight
-# Every push to main that touches app/ also runs build (ios / production) without TestFlight, so each
-# merged change gets checked on EAS; run submit to send the latest one to TestFlight.
+# Every push to main that touches app/ also runs build (ios / preview), so each merged change has a
+# build you install from the EAS link. When ready, run build (ios / production) by hand for TestFlight.
 # GitHub secrets: EXPO_TOKEN, APPLE_TEAM_ID, ASC_API_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID, and the AWS creds
 # (the generated iOS signing material is kept in AWS Secrets Manager picket/apple-signing). See docs/OPERATIONS.md.
 on:
@@ -47,9 +47,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # A push has no inputs: it builds ios / production and leaves TestFlight to the submit action.
+  # A push has no inputs: it builds ios / preview (ad hoc, installable from the EAS link).
   ACTION: ${{ inputs.action || 'build' }}
-  PROFILE: ${{ inputs.profile || 'production' }}
+  PROFILE: ${{ inputs.profile || 'preview' }}
   PLATFORM: ${{ inputs.platform || 'ios' }}
   TESTFLIGHT: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
