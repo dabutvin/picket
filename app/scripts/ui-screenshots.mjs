@@ -92,6 +92,26 @@ await shot('02b-review-jump-grid', 'Review: "Jump to" grid of the queue by day (
 await byId('review-thumb-demo-08').click();
 await settle(1200);
 await shot('02c-review-after-jump', 'Review: after tapping a photo in the grid (position jumped)');
+// Jump to the last photo in the queue and skip it: Review steps back to the one before it
+// instead of showing the end page while earlier photos still wait.
+await byId('review-grid').click();
+await settle(1000);
+for (let i = 0; i < 20 && !(await byId('review-thumb-demo-54').isVisible().catch(() => false)); i++) {
+  await page.mouse.move(195, 500);
+  await page.mouse.wheel(0, 1500);
+  await settle(500);
+}
+await byId('review-thumb-demo-54').click();
+await settle(1200);
+await page.getByText('↓ Skip', { exact: true }).click();
+await settle(1200);
+// The end page stays mounted beside the photo in view, so check the Skip button instead:
+// it is disabled only when no photo is in view.
+const skipButton = page.getByRole('button', { name: '↓ Skip', exact: true });
+if ((await skipButton.getAttribute('aria-disabled')) === 'true') {
+  throw new Error('skipping the last Review photo showed the end page instead of stepping back');
+}
+await shot('02d-review-after-skipping-last', 'Review: skipped the last photo, the one before it slid in');
 
 await byId('tab-picks').click();
 await settle(1500);
