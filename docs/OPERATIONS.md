@@ -79,13 +79,18 @@ couple of minutes. Running it when nothing changed is harmless.
 
 ### `app-build`
 
-Three actions, all without a computer or an Apple ID login:
+Four actions, all without a computer or an Apple ID login:
 
 | action | what it does |
 |---|---|
 | `register-device` | starts an EAS workflow that pauses with a link. Open it on your iPhone, install the profile it offers, then approve the device on the run page. That's how EAS learns the phone's UDID. |
 | `devices` | lists the iPhones registered on EAS for your Apple team |
-| `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` (ios) makes an App Store profile instead and hands the finished build to TestFlight automatically; see **TestFlight** below. Android needs none of this. |
+| `build` | iOS: creates or reuses an iOS Distribution certificate, registers the bundle id and your devices, and creates an ad hoc provisioning profile, all through the App Store Connect API (`app/scripts/apple-signing.mjs`); then starts the EAS build with those credentials. `preview` is the one to use: a standalone build you install from the EAS link, no dev server. `production` (ios) makes an App Store profile instead and hands the finished build to TestFlight automatically (untick `testflight` to only build it on EAS); see **TestFlight** below. Android needs none of this. |
+| `submit` | sends the latest finished `production` iOS build on EAS to TestFlight, for a build made with `testflight` unticked. No rebuild. |
+
+Every push to `main` that changes `app/` also runs `build` on its own (ios,
+`production`, `testflight` off), so each merged app change is built on EAS.
+When one looks good, run `submit` to send the latest to TestFlight.
 
 The signing material (private key, certificate, profile) lives in AWS Secrets
 Manager under `picket/apple-signing`, so every build reuses it; nothing is
@@ -185,7 +190,9 @@ Known limits:
   App, bundle id `com.danbut.picket`; Apple's API cannot create it). The
   workflow looks up the record's id, writes the ASC key into a submit profile
   for that run only, and starts the build with `--auto-submit`, so EAS uploads
-  it when it finishes. Testers go in App Store Connect → Picket → TestFlight →
+  it when it finishes. To check a build first, untick `testflight`: EAS only
+  builds it (an App Store build can't be installed from the EAS link), and
+  `app-build → submit` sends the latest one to TestFlight when you're ready. Testers go in App Store Connect → Picket → TestFlight →
   Internal Testing (team members, up to 100, no review; an external group
   needs a one-time beta review). TestFlight builds expire after 90 days; run
   `build` again. Switching between `preview` and `production` regenerates the
