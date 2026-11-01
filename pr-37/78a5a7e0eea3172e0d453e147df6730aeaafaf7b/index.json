@@ -52,23 +52,23 @@
     "caption": "Picks: everything sent (notice stays a few seconds)"
   },
   {
-    "file": "07-sent.png",
-    "caption": "Sent: everything Lightroom has"
+    "file": "07-library-sent.png",
+    "caption": "Library → Sent: everything Lightroom has"
   },
   {
-    "file": "08-skipped.png",
-    "caption": "Skipped"
+    "file": "08-library-skipped.png",
+    "caption": "Library → Skipped"
   },
   {
-    "file": "09-camera.png",
-    "caption": "Camera: receiver settings"
+    "file": "09-settings.png",
+    "caption": "Settings: camera / receiver settings at the top (sample-photos mode)"
   },
   {
-    "file": "10-settings.png",
-    "caption": "Settings (sample-photos mode)"
+    "file": "10-settings-lower.png",
+    "caption": "Settings, scrolled: Lightroom and the Picket API"
   },
   {
     "file": "08b-skipped-urls-refreshed.png",
-    "caption": "Skipped: thumbnails whose signed URLs had expired, re-signed on demand and loaded"
+    "caption": "Library → Skipped: thumbnails whose signed URLs had expired, re-signed on demand and loaded"
   }
 ]
