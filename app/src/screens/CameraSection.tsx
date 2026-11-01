@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ApiError, type Api } from '../lib/api';
 import type { ReceiverSettings } from '../lib/types';
@@ -8,8 +9,11 @@ import { Button } from '../components/Button';
 
 const fail = (what: string) => (e: unknown) => Alert.alert(what, e instanceof Error ? e.message : String(e));
 
-/** Everything the a7C II's FTP menu asks for, plus the receiver's power switch. */
-export function CameraScreen({ api }: { api: Api }) {
+/**
+ * Everything the a7C II's FTP menu asks for, plus the receiver's power switch. A section of
+ * Settings (it sits inside the Settings scroll view, so it has no scroll view of its own).
+ */
+export function CameraSection({ api }: { api: Api }) {
   const [settings, setSettings] = useState<ReceiverSettings | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -84,7 +88,7 @@ export function CameraScreen({ api }: { api: Api }) {
 
   if (notDeployed) {
     return (
-      <View style={[styles.root, { justifyContent: 'center', gap: 16 }]}>
+      <View style={styles.root}>
         <Text style={styles.title}>Camera</Text>
         <Text style={styles.help}>{notDeployed}</Text>
         <Button title="Check again" color={colors.muted} onPress={() => void load()} />
@@ -93,7 +97,8 @@ export function CameraScreen({ api }: { api: Api }) {
   }
   if (!settings) {
     return (
-      <View style={[styles.root, { justifyContent: 'center' }]}>
+      <View style={styles.root}>
+        <Text style={styles.title}>Camera</Text>
         <ActivityIndicator color={colors.accent} />
       </View>
     );
@@ -110,7 +115,7 @@ export function CameraScreen({ api }: { api: Api }) {
   ];
 
   return (
-    <ScrollView contentContainerStyle={styles.root}>
+    <View style={styles.root}>
       <View style={styles.header}>
         <Text style={styles.title}>Camera</Text>
         <View style={styles.stateRow}>
@@ -128,7 +133,12 @@ export function CameraScreen({ api }: { api: Api }) {
             <Text style={[styles.value, r.secret && styles.mono]} numberOfLines={1}>
               {r.secret && !showPassword ? '••••••••••••' : r.value}
             </Text>
-            <Text style={styles.copy}>{copied === r.label ? 'copied' : 'copy'}</Text>
+            <Ionicons
+              name={copied === r.label ? 'checkmark' : 'copy-outline'}
+              size={17}
+              color={copied === r.label ? colors.pick : colors.muted}
+              accessibilityLabel={copied === r.label ? 'copied' : `copy ${r.label}`}
+            />
           </Pressable>
         ))}
         <Button title={showPassword ? 'Hide password' : 'Show password'} color={colors.muted} onPress={() => setShowPassword((v) => !v)} />
@@ -161,25 +171,24 @@ export function CameraScreen({ api }: { api: Api }) {
           <Button title="Refresh" color={colors.muted} onPress={() => void load()} />
         </View>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { padding: 16, gap: 12 },
+  root: { gap: 12 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { color: colors.text, fontSize: 24, fontWeight: '800' },
+  title: { color: colors.text, fontSize: 16, fontWeight: '700' },
   stateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   state: { color: colors.muted },
   help: { color: colors.muted, lineHeight: 20 },
-  section: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 8 },
+  section: { color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 8 },
   card: { backgroundColor: colors.card, borderRadius: 12, padding: 14, gap: 10, borderWidth: 1, borderColor: colors.border },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   label: { color: colors.muted, width: 120 },
   value: { color: colors.text, flex: 1, fontWeight: '600' },
   mono: { fontFamily: MONO },
-  copy: { color: colors.accent, fontSize: 12 },
   input: { color: colors.text, backgroundColor: colors.bg, borderColor: colors.border, borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15 },
   actions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
 });
