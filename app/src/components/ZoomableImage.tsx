@@ -8,6 +8,10 @@ import { Image } from 'expo-image';
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
 const ZOOMED_AT = 1.05;
+/** Pinching in from the fitted photo shrinks it down to this, as a hint of what letting go does. */
+const PINCH_OUT_FLOOR = 0.6;
+/** Let go below this scale (having started at fit) and onPinchOut fires. */
+const PINCH_OUT_AT = 0.82;
 
 interface Props {
   uri: string;
@@ -15,6 +19,8 @@ interface Props {
   style?: StyleProp<ViewStyle>;
   /** Fires when the image crosses in or out of zoom, so the parents can hand over or take back their pans. */
   onZoomChange?: (zoomed: boolean) => void;
+  /** Pinching in from the fitted photo and letting go: "zoom out" past the photo (Review opens its grid). */
+  onPinchOut?: () => void;
   testID?: string;
 }
 
@@ -23,7 +29,7 @@ interface Props {
  * zoomed the single-finger pan is disabled, so the card's flick and the carousel's browse
  * gestures around it keep working; pinch is two fingers and never collides with them.
  */
-export function ZoomableImage({ uri, placeholder, style, onZoomChange, testID }: Props) {
+export function ZoomableImage({ uri, placeholder, style, onZoomChange, onPinchOut, testID }: Props) {
   const [zoomed, setZoomed] = useState(false);
   const width = useSharedValue(0);
   const height = useSharedValue(0);
@@ -34,6 +40,9 @@ export function ZoomableImage({ uri, placeholder, style, onZoomChange, testID }:
   const originX = useSharedValue(0); // image point under the fingers at pinch start, unscaled, from the centre
   const originY = useSharedValue(0);
   const pinching = useSharedValue(false);
+  const fromFit = useSharedValue(false); // this pinch started with the photo at fit
+  const canPinchOut = !!onPinchOut;
+  const pinchedOut = () => onPinchOut?.();
 
   const clamp = (v: number, lo: number, hi: number) => {
     'worklet';
@@ -84,11 +93,13 @@ export function ZoomableImage({ uri, placeholder, style, onZoomChange, testID }:
   const pinch = Gesture.Pinch()
     .onStart((e) => {
       pinching.value = true;
+      fromFit.value = savedScale.value <= 1.001;
       originX.value = (e.focalX - width.value / 2 - tx.value) / scale.value;
       originY.value = (e.focalY - height.value / 2 - ty.value) / scale.value;
     })
     .onUpdate((e) => {
-      const s = clamp(savedScale.value * e.scale, 1, MAX_SCALE);
+      const floor = canPinchOut && fromFit.value ? PINCH_OUT_FLOOR : 1;
+      const s = clamp(savedScale.value * e.scale, floor, MAX_SCALE);
       scale.value = s;
       // Keep the image point that was under the fingers under the (moving) fingers.
       tx.value = e.focalX - width.value / 2 - originX.value * s;
@@ -96,6 +107,11 @@ export function ZoomableImage({ uri, placeholder, style, onZoomChange, testID }:
     })
     .onEnd(() => {
       pinching.value = false;
+      if (canPinchOut && fromFit.value && scale.value < PINCH_OUT_AT) {
+        reset();
+        scheduleOnRN(pinchedOut);
+        return;
+      }
       settle();
     });
 

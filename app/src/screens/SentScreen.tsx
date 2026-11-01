@@ -12,7 +12,7 @@ export function SentScreen({ api }: { api: Api }) {
       status="sent"
       title="Sent"
       emptyText="Nothing has gone to Lightroom yet. Send picks from the Picks tab and they land here once Lightroom has them."
-      subtitle={(items) => `${items.length} in Lightroom`}
+      subtitle={(_items, count) => `${count} in Lightroom`}
       cellBadges={false}
       renderActions={(_photo, { close }) => (
         <>
