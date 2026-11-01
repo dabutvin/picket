@@ -4,7 +4,9 @@ name: app-build
 #   register-device  → starts an EAS workflow that gives you a link to enroll your iPhone
 #   devices          → lists the iPhones registered on EAS for your Apple team
 #   build            → creates/reuses the iOS Distribution certificate + ad hoc profile through the
-#                      App Store Connect API (state kept in AWS Secrets Manager), then runs EAS Build
+#                      App Store Connect API (state kept in AWS Secrets Manager), then runs EAS Build.
+#                      production/ios goes to TestFlight unless the testflight box is unticked
+#   submit           → sends the latest finished production iOS build on EAS to TestFlight
 # GitHub secrets: EXPO_TOKEN, APPLE_TEAM_ID, ASC_API_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID, and the AWS creds
 # (the generated iOS signing material is kept in AWS Secrets Manager picket/apple-signing). See docs/OPERATIONS.md.
 on:
@@ -13,7 +15,7 @@ on:
       action:
         type: choice
         default: build
-        options: [build, register-device, devices]
+        options: [build, submit, register-device, devices]
       profile:
         description: eas.json build profile (build only)
         type: choice
@@ -24,6 +26,10 @@ on:
         type: choice
         default: ios
         options: [ios, android, all]
+      testflight:
+        description: "production + ios only: submit to TestFlight when the build finishes (untick to just build on EAS; send it later with the submit action)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write # commits the EAS project id into app/app.json the first time
@@ -148,12 +154,13 @@ jobs:
             echo '```json'; cat signing.json; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # production + ios: EAS submits the finished build to TestFlight by itself (eas build --auto-submit).
+      # production + ios: EAS submits the finished build to TestFlight by itself (eas build --auto-submit),
+      # unless the testflight input is off. The submit action uses the same profile for a build made earlier.
       # Non-interactive submission needs the App Store Connect app's numeric id and the API key as a file
       # in the submit profile; both are filled in here, never committed. The app record itself is created
       # once by hand in App Store Connect (Apple's API cannot create it).
       - name: TestFlight submit profile
-        if: inputs.action == 'build' && inputs.profile == 'production' && inputs.platform == 'ios'
+        if: (inputs.action == 'build' && inputs.profile == 'production' && inputs.platform == 'ios' && inputs.testflight) || inputs.action == 'submit'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -172,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           submit=""
-          if [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ]; then submit="--auto-submit"; fi
+          if [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ] && [ "${{ inputs.testflight }}" = "true" ]; then submit="--auto-submit"; fi
           eas build --platform "${{ inputs.platform }}" --profile "${{ inputs.profile }}" --non-interactive --no-wait --json $submit > build.json
           {
             echo "## EAS build started (${{ inputs.platform }} / ${{ inputs.profile }})"
@@ -187,7 +194,22 @@ jobs:
             echo
             if [ -n "$submit" ]; then
               echo "EAS submits this build to TestFlight when it finishes (about 15 minutes to build, then about 10 minutes of Apple processing). Testers install it from the TestFlight app; manage them in App Store Connect → Picket → TestFlight → Internal Testing."
+            elif [ "${{ inputs.profile }}" = "production" ] && [ "${{ inputs.platform }}" = "ios" ]; then
+              echo "TestFlight submission is off for this run. An App Store build can't be installed from the EAS link; when you're happy with it, run **app-build → submit** to send the latest production build to TestFlight."
             else
               echo "Open the link on your phone. When the build finishes, tap **Install**."
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------ submit
+      - name: Submit latest production build to TestFlight
+        if: inputs.action == 'submit'
+        run: |
+          set -euo pipefail
+          eas submit --platform ios --profile production --latest --non-interactive --no-wait 2>&1 | tee submit.log
+          url="$(grep -oE 'https://expo\.dev/[^ ]*' submit.log | head -n1 || true)"
+          {
+            echo "## TestFlight submission started"
+            echo
+            echo "Submitting the latest finished production iOS build${url:+: $url}. Apple processing takes about 10 minutes; then it shows up in the TestFlight app."
           } >> "$GITHUB_STEP_SUMMARY"
