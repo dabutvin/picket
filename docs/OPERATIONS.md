@@ -170,8 +170,8 @@ Known limits:
 
 ## Notifications (one-time APNs key)
 
-Picket pushes "N new photos to review" a few minutes after a burst from the camera ends
-(ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
+Picket pushes "Photos are syncing" when the first photo of a burst arrives and "Done: N new
+photos synced" 5 minutes after the last one (ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
 create one, so this is done once in a browser (a phone works):
 
 1. developer.apple.com → Account → Certificates, Identifiers & Profiles → **Keys** → **+**.
@@ -207,8 +207,8 @@ regenerates the profile by itself. The notifier logs to the `NotifierLogGroup` o
 - **No notification after a shoot**: Settings → Notifications should say *On for this
   phone* (if *Off in iOS Settings*, tap Open iOS Settings). **Send a test notification**: *no
   APNs key* means step 4–5 above; *Apple refused the push* usually means a key or team id typo
-  (the notifier log has Apple's reason). A burst is announced once it has been quiet for 3
-  minutes, checked every 5, and only photos still unreviewed count.
+  (the notifier log has Apple's reason). "Done" comes 5 minutes after the last photo; a re-sent
+  frame never counts as new.
 - **Change the camera password**: app → Camera → Set or Generate, then update
   the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
   Settings.

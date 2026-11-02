@@ -1,22 +1,26 @@
 /**
- * Push notifications for newly synced photos (ADR-010).
+ * Push notifications for photos syncing from the camera (ADR-010). Two per burst:
  *
- * Phones register their APNs device token with POST /devices. Every few minutes the notifier
- * Lambda looks at the unreviewed photos, and once a burst from the camera has gone quiet it sends
- * one "N new photos to review" push to every registered phone, straight to Apple (no Expo push
- * service). The badge is the whole unreviewed count.
+ *   1. "Photos are syncing" as soon as the first new photo of a burst lands, and
+ *   2. "Done: N new photos synced" once nothing new has arrived for QUIET_MS.
  *
- * State lives in the small Notify table: one row per device (`device#<token>`) and one `state`
- * row holding the watermark (uploadedAt of the newest photo already announced).
+ * Event-driven, nothing polls: the Photos table stream (INSERT only, so a re-sent frame never
+ * counts) calls `onUploads`, which starts or extends the burst and drops a message on a delay
+ * queue. Each message comes due QUIET_MS after its photo and calls `onQuiet`; only the one that
+ * finds no newer upload since it was sent closes the burst and sends "done".
+ *
+ * Phones register their APNs device token with POST /devices; pushes go straight to Apple (no
+ * Expo push service). State lives in the small Notify table: one row per device
+ * (`device#<token>`) and one `burst` row while photos are arriving.
  */
 import { connect, constants, type ClientHttp2Session } from 'node:http2';
 import { createPrivateKey, sign } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { Store } from './store.js';
 
-// ----------------------------------------------------------------------------- devices + state
+// ----------------------------------------------------------------------------- devices + burst state
 
 export interface Device {
   token: string;
@@ -26,23 +30,29 @@ export interface Device {
   registeredAt: string;
 }
 
-export interface NotifyState {
-  /** uploadedAt of the newest photo already announced (or, on the first run, when notifications started). */
-  watermark?: string;
-  lastSentAt?: string;
-  lastCount?: number;
+/** Photos arriving right now. Absent between bursts. */
+export interface Burst {
+  startedAt: string;
+  /** uploadedAt of the newest photo so far; the delay-queue messages carry the value they saw. */
+  lastUploadAt: string;
+  count: number;
 }
 
 export interface DeviceStore {
   list(): Promise<Device[]>;
   put(device: Device): Promise<void>;
   remove(token: string): Promise<void>;
-  getState(): Promise<NotifyState>;
-  putState(state: NotifyState): Promise<void>;
+  /** Add `count` photos, the newest uploaded at `lastUploadAt`. `started` is true for exactly one caller per burst. */
+  noteUploads(count: number, lastUploadAt: string, now: string): Promise<{ started: boolean }>;
+  getBurst(): Promise<Burst | undefined>;
+  /** End the burst only if no photo arrived after `lastUploadAt`; the closed burst, or undefined if it moved on (or another call closed it). */
+  closeBurst(lastUploadAt: string): Promise<Burst | undefined>;
 }
 
 const DEVICE = 'device#';
-const STATE = 'state';
+const BURST = { pk: 'burst', sk: 'burst' };
+
+const isConditionFailure = (err: unknown) => (err as { name?: string }).name === 'ConditionalCheckFailedException';
 
 export function createDynamoDeviceStore(tableName: string, ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), { marshallOptions: { removeUndefinedValues: true } })): DeviceStore {
   return {
@@ -59,25 +69,53 @@ export function createDynamoDeviceStore(tableName: string, ddb = DynamoDBDocumen
     async remove(token) {
       await ddb.send(new DeleteCommand({ TableName: tableName, Key: { pk: 'devices', sk: `${DEVICE}${token}` } }));
     },
-    async getState() {
-      const res = await ddb.send(new GetCommand({ TableName: tableName, Key: { pk: STATE, sk: STATE } }));
-      const { watermark, lastSentAt, lastCount } = (res.Item ?? {}) as NotifyState;
-      return { watermark, lastSentAt, lastCount };
+    async noteUploads(count, lastUploadAt, now) {
+      // One atomic write: the caller that finds no startedAt is the one that started the burst.
+      const res = await ddb.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: BURST,
+          UpdateExpression: 'SET startedAt = if_not_exists(startedAt, :now), lastUploadAt = :last ADD #c :n',
+          ExpressionAttributeNames: { '#c': 'count' },
+          ExpressionAttributeValues: { ':now': now, ':last': lastUploadAt, ':n': count },
+          // Old values of the attributes this write touched: no startedAt means there was no burst.
+          ReturnValues: 'UPDATED_OLD',
+        }),
+      );
+      return { started: !(res.Attributes as Partial<Burst> | undefined)?.startedAt };
     },
-    async putState(state) {
-      await ddb.send(new PutCommand({ TableName: tableName, Item: { pk: STATE, sk: STATE, ...state } }));
+    async getBurst() {
+      const res = await ddb.send(new GetCommand({ TableName: tableName, Key: BURST }));
+      return res.Item as Burst | undefined;
+    },
+    async closeBurst(lastUploadAt) {
+      try {
+        const res = await ddb.send(
+          new DeleteCommand({
+            TableName: tableName,
+            Key: BURST,
+            ConditionExpression: 'lastUploadAt = :last',
+            ExpressionAttributeValues: { ':last': lastUploadAt },
+            ReturnValues: 'ALL_OLD',
+          }),
+        );
+        return res.Attributes as Burst | undefined;
+      } catch (err) {
+        if (isConditionFailure(err)) return undefined;
+        throw err;
+      }
     },
   };
 }
 
-export function createMemoryDeviceStore(devices: Device[] = [], state: NotifyState = {}): DeviceStore & { devices: Device[]; state: NotifyState } {
-  const s = { devices: [...devices], state: { ...state } };
+export function createMemoryDeviceStore(devices: Device[] = [], burst?: Burst): DeviceStore & { devices: Device[]; burst: Burst | undefined } {
+  const s: { devices: Device[]; burst: Burst | undefined } = { devices: [...devices], burst: burst && { ...burst } };
   return {
     get devices() {
       return s.devices;
     },
-    get state() {
-      return s.state;
+    get burst() {
+      return s.burst;
     },
     list: async () => [...s.devices],
     put: async (d) => {
@@ -86,9 +124,17 @@ export function createMemoryDeviceStore(devices: Device[] = [], state: NotifySta
     remove: async (token) => {
       s.devices = s.devices.filter((x) => x.token !== token);
     },
-    getState: async () => ({ ...s.state }),
-    putState: async (st) => {
-      s.state = { ...st };
+    noteUploads: async (count, lastUploadAt, now) => {
+      const started = !s.burst;
+      s.burst = { startedAt: s.burst?.startedAt ?? now, lastUploadAt, count: (s.burst?.count ?? 0) + count };
+      return { started };
+    },
+    getBurst: async () => s.burst && { ...s.burst },
+    closeBurst: async (lastUploadAt) => {
+      if (!s.burst || s.burst.lastUploadAt !== lastUploadAt) return undefined;
+      const closed = s.burst;
+      s.burst = undefined;
+      return closed;
     },
   };
 }
@@ -205,71 +251,44 @@ export async function loadApnsKey(secretId: string, client = new SecretsManagerC
 
 // ----------------------------------------------------------------------------- when to notify
 
-/** A burst is over once nothing new has arrived for this long. */
-export const QUIET_MS = 3 * 60_000;
-/** During a long shoot, still say something this often. */
-export const MAX_WAIT_MS = 30 * 60_000;
-
-export type Plan = { action: 'none' } | { action: 'start'; watermark: string } | { action: 'wait' } | { action: 'send'; count: number; watermark: string };
-
 /**
- * Pure decision. `uploads` are the uploadedAt times of the photos that are unreviewed right now,
- * so anything already decided in the app never counts. The first run sets the watermark to now
- * and announces nothing, so turning notifications on doesn't announce the existing backlog.
+ * A burst is over once nothing new has arrived for this long. Long enough that walking to the
+ * next spot doesn't split one shoot into several syncing/done pairs; short enough that "done"
+ * still feels prompt.
  */
-export function planNotification(watermark: string | undefined, uploads: string[], now: Date): Plan {
-  if (!watermark) return { action: 'start', watermark: now.toISOString() };
-  // Compare as instants: S3 event times and the preview Lambda's fallback format differ as strings.
-  const mark = Date.parse(watermark);
-  const fresh = uploads
-    .map(Date.parse)
-    .filter((t) => Number.isFinite(t) && t > mark)
-    .sort((a, b) => a - b);
-  if (fresh.length === 0) return { action: 'none' };
-  const oldest = fresh[0]!;
-  const newest = fresh[fresh.length - 1]!;
-  const quiet = now.getTime() - newest >= QUIET_MS;
-  const overdue = now.getTime() - oldest >= MAX_WAIT_MS;
-  if (!quiet && !overdue) return { action: 'wait' };
-  return { action: 'send', count: fresh.length, watermark: new Date(newest).toISOString() };
-}
+export const QUIET_MS = 5 * 60_000;
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function newPhotosPayload(count: number, unreviewed: number): ApnsPayload {
+export function syncingPayload(): ApnsPayload {
   return {
-    aps: {
-      alert: { title: 'Picket', body: `${plural(count, 'new photo')} to review` },
-      badge: unreviewed,
-      sound: 'default',
-      'thread-id': 'new-photos',
-    },
-    kind: 'new-photos',
+    aps: { alert: { title: 'Picket', body: 'Photos are syncing from the camera…' }, sound: 'default', 'thread-id': 'sync' },
+    kind: 'syncing',
   };
 }
 
-/** Every unreviewed photo's uploadedAt, paging through the byStatus index. */
-export async function unreviewedUploads(store: Store): Promise<string[]> {
-  const out: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await store.listByStatus('unreviewed', 100, cursor);
-    for (const p of page.items) if (p.uploadedAt) out.push(p.uploadedAt);
-    cursor = page.cursor;
-  } while (cursor);
-  return out;
+export function donePayload(count: number, unreviewed: number): ApnsPayload {
+  return {
+    aps: {
+      alert: { title: 'Picket', body: `Done: ${plural(count, 'new photo')} synced. ${unreviewed} to review.` },
+      badge: unreviewed,
+      sound: 'default',
+      'thread-id': 'sync',
+    },
+    kind: 'done',
+  };
 }
 
 export interface NotifierDeps {
   store: Store;
   devices: DeviceStore;
-  /** Null when the APNs key isn't configured yet: the notifier keeps its watermark moving and sends nothing. */
+  /** Null when the APNs key isn't configured yet: bursts are still tracked, nothing is sent. */
   push: PushFn | null;
+  /** Schedule `onQuiet(lastUploadAt)` QUIET_MS from now (an SQS message with DelaySeconds). */
+  later: (lastUploadAt: string) => Promise<void>;
   now?: () => Date;
   log?: (msg: string, extra?: unknown) => void;
 }
-
-export type NotifierOutcome = Plan & { delivered?: number; removed?: number };
 
 /** Prune tokens Apple says are dead; report how many pushes landed. */
 async function deliver(devices: DeviceStore, push: PushFn, payload: ApnsPayload, log: NonNullable<NotifierDeps['log']>) {
@@ -287,24 +306,40 @@ async function deliver(devices: DeviceStore, push: PushFn, payload: ApnsPayload,
   return { delivered: results.filter((r) => r.ok).length, attempted: tokens.length, removed };
 }
 
-export async function runNotifier({ store, devices, push, now = () => new Date(), log = console.log }: NotifierDeps): Promise<NotifierOutcome> {
-  const state = await devices.getState();
-  const uploads = await unreviewedUploads(store);
+const latest = (times: string[]) => times.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a));
+
+/** New photos landed (uploadedAt of each). Starts or extends the burst; the first one of a burst says "syncing". */
+export async function onUploads(uploads: string[], { devices, push, later, now = () => new Date(), log = console.log }: NotifierDeps) {
+  if (uploads.length === 0) return { started: false };
+  const last = latest(uploads);
   const at = now();
-  const plan = planNotification(state.watermark, uploads, at);
-  if (plan.action === 'start') {
-    await devices.putState({ ...state, watermark: plan.watermark });
-    return plan;
+  // A burst whose closing message never came (a lost or failed delivery) must not swallow the next
+  // shoot's "syncing": past its quiet time, close it silently and start over.
+  const open = await devices.getBurst();
+  if (open && at.getTime() - Date.parse(open.lastUploadAt) > 2 * QUIET_MS) {
+    log('closing a stale burst', open);
+    await devices.closeBurst(open.lastUploadAt);
   }
-  if (plan.action !== 'send') return plan;
+  const { started } = await devices.noteUploads(uploads.length, last, at.toISOString());
+  if (started && push) await deliver(devices, push, syncingPayload(), log);
+  await later(last);
+  return { started };
+}
+
+/**
+ * A delay-queue message came due. If a newer photo arrived since it was sent, its own message will
+ * come later: do nothing. Otherwise the burst is over: close it (exactly once) and say "done".
+ */
+export async function onQuiet(lastUploadAt: string, { store, devices, push, log = console.log }: NotifierDeps) {
+  const closed = await devices.closeBurst(lastUploadAt);
+  if (!closed) return { done: false as const };
   if (!push) {
-    log('APNs key not configured; skipping', { count: plan.count });
-    await devices.putState({ ...state, watermark: plan.watermark });
-    return plan;
+    log('APNs key not configured; burst closed without a push', { count: closed.count });
+    return { done: true as const, count: closed.count };
   }
-  const { delivered, removed } = await deliver(devices, push, newPhotosPayload(plan.count, uploads.length), log);
-  await devices.putState({ watermark: plan.watermark, lastSentAt: at.toISOString(), lastCount: plan.count });
-  return { ...plan, delivered, removed };
+  const unreviewed = await store.countByStatus('unreviewed');
+  const sent = await deliver(devices, push, donePayload(closed.count, unreviewed), log);
+  return { done: true as const, count: closed.count, ...sent };
 }
 
 /** What the API's routes need: register a phone, forget one, send a test push. */

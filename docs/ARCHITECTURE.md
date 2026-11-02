@@ -71,11 +71,12 @@ but keeps an existing decision.
 
 ### 2b. New-photo notifications
 
-Every 5 minutes the **notifier** Lambda (`services/api/src/notifier.ts`) looks at the photos still
-`unreviewed`. Once a burst of uploads has been quiet for 3 minutes (or has run for 30), it pushes
-"N new photos to review" to every phone registered in the `Notify` table, straight to Apple's
-APNs with the team's auth key, and sets the icon badge to the unreviewed count. The app
-registers its APNs device token with `POST /devices` on launch. See ADR-010.
+The **notifier** Lambda (`services/api/src/notifier.ts`) reads the Photos table stream, new rows
+only. The first new photo of a burst pushes "Photos are syncing from the camera…" to every phone
+registered in the `Notify` table; each batch also queues a message on an SQS queue delayed by 5
+minutes, and the one for the newest photo closes the burst with "Done: N new photos synced. M to
+review." (badge = unreviewed count). Pushes go straight to Apple's APNs with the team's auth key.
+The app registers its APNs device token with `POST /devices` on launch. See ADR-010.
 
 ### 3. Review (first triage) and Picks (the send step)
 

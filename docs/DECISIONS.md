@@ -233,28 +233,37 @@ changes from another phone (Elise's) show up within seconds. The saved lists are
 about 0.4 KB a photo. Pull-to-refresh still reloads a tab in full, as a safety valve. A sign-out
 or a cache-format change costs one full load per tab.
 
-## ADR-010: New-photo notifications go straight to APNs, one per burst
+## ADR-010: New-photo notifications go straight to APNs, two per burst
 
 **Context.** Photos arrive from the camera a few seconds apart for as long as a shoot lasts, and
-nobody wants a buzz per frame. The app is iOS only and is built with local signing credentials
-(ADR-007), so Expo's push service would need an APNs key uploaded to EAS anyway.
+nobody wants a buzz per frame. What is worth knowing is that photos have started coming in, and
+then that they have stopped and how many there are. The app is iOS only and is built with local
+signing credentials (ADR-007), so Expo's push service would need an APNs key uploaded to EAS anyway.
 
 **Decision.**
 - The app asks for notification permission once it is paired and registers the raw APNs device
   token (`getDevicePushTokenAsync`) with `POST /devices` on every launch; tokens live in a small
-  `Notify` table (`pk = devices`, `sk = device#<token>`) next to one `state` row.
-- A notifier Lambda runs every 5 minutes. It reads the `uploadedAt` of every photo that is still
-  unreviewed and announces those newer than its watermark once the newest is 3 minutes old (the
-  burst is over), or once the oldest is 30 minutes old (a long shoot still hears every half hour).
-  One push: "N new photos to review", badge = all unreviewed. Photos already reviewed in the app
-  never count. The first run only sets the watermark, so turning this on announces no backlog.
+  `Notify` table (`pk = devices`, `sk = device#<token>`) next to one `burst` row.
+- Event-driven, nothing polls. The notifier Lambda reads the Photos table stream filtered to
+  `INSERT` (the preview Lambda's upsert is an INSERT for a new frame and a MODIFY for a re-send,
+  so re-sends never count). One atomic update adds the batch to the `burst` row
+  (`startedAt = if_not_exists(...)`, `ADD count`, `lastUploadAt`); the caller that found no
+  `startedAt` pushes **"Photos are syncing from the camera…"**. Every batch also sends an SQS
+  message delayed by 5 minutes carrying the `lastUploadAt` it wrote.
+- When a message comes due, the notifier deletes the `burst` row on the condition that
+  `lastUploadAt` still equals the message's value. Only the message for the newest photo can, so
+  the burst closes exactly once, 5 minutes after the last photo, with **"Done: N new photos synced.
+  M to review."** and the badge set to all unreviewed. A burst left open by a lost message is
+  closed silently by the next upload once it is twice the quiet time old.
 - Pushes go from the Lambda to `api.push.apple.com` over HTTP/2 with a token-based APNs key
   (`{keyId, teamId, p8}` in a Secrets Manager secret the deploy fills from GitHub secrets). Apple's
   410 / `BadDeviceToken` answers delete the token.
 - The bundle id gets the Push Notifications capability through the App Store Connect API in
   `apple-signing.mjs`, which recreates the profile once so it carries the entitlement.
 
-**Consequences.** A notification lands 3 to 8 minutes after the last frame of a burst. Nothing
-third-party sits in the path. The APNs key is one manual step: Apple's API cannot create it.
-Without it everything still deploys and the notifier only moves its watermark. The app also
-keeps the icon badge equal to the Review count while it is open.
+**Consequences.** "Syncing" arrives within seconds of the first frame; "done" 5 minutes after the
+last. A gap of more than 5 minutes inside a shoot makes it two bursts (two pairs of pushes);
+`QUIET_MS` in `services/api/src/notifications.ts` is the one knob. Nothing third-party sits in
+the path, and nothing runs while the camera is idle. The APNs key is one manual step: Apple's API
+cannot create it. Without it everything still deploys and bursts are tracked silently. The app
+also keeps the icon badge equal to the Review count while it is open.
