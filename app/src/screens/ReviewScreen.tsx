@@ -216,9 +216,9 @@ export function ReviewScreen({ api }: { api: Api }) {
       {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around. Pinch or double-tap to zoom; pinch in for the grid.</Text>}
 
       <View style={styles.actions}>
-        <Button title="↓ Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
+        <Button title="↓ Skip" color={colors.muted} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
         <Button title="Undo" color={colors.muted} onPress={undo} disabled={!last} />
-        <Button title="↑ Pick" color={colors.pick} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
+        <Button title="↑ Pick" color={colors.accent} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
       </View>
 
       {grid && (

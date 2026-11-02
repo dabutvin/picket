@@ -128,7 +128,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush,
               <Text style={styles.help}>Picks land in the “{lr.albumName}” album.</Text>
               <View style={styles.row}>
                 <Button title="Refresh" color={colors.muted} onPress={() => void api.refreshLightroom().then(setLr)} />
-                <Button title="Disconnect" color={colors.reject} onPress={disconnect} />
+                <Button title="Disconnect" color={colors.danger} onPress={disconnect} />
               </View>
             </View>
           ) : (
@@ -138,7 +138,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush,
                 touch this phone.
               </Text>
               {!lr.oauth.clientId && (
-                <Text style={[styles.help, { color: colors.reject }]}>The server has no Lightroom client id yet (deploy with LIGHTROOM_CLIENT_ID).</Text>
+                <Text style={[styles.help, { color: colors.danger }]}>The server has no Lightroom client id yet (deploy with LIGHTROOM_CLIENT_ID).</Text>
               )}
               <Button
                 title={lrBusy ? 'Waiting for Adobe…' : 'Connect Lightroom'}
@@ -189,7 +189,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush,
       {initial && (
         <Button
           title="Sign out of Picket"
-          color={colors.reject}
+          color={colors.danger}
           onPress={() => {
             void Promise.all([clearSettings(), clearPhotoCache()]).then(() => onSaved(null));
           }}

@@ -117,7 +117,7 @@ export function PicksScreen({ api }: { api: Api }) {
             </Text>
           </>
         ) : (
-          <Text style={[styles.progressText, { color: colors.pick }]}>✓ {sentCount} sent to Lightroom</Text>
+          <Text style={[styles.progressText, { color: colors.accent }]}>✓ {sentCount} sent to Lightroom</Text>
         )}
       </View>
     );
@@ -148,7 +148,7 @@ export function PicksScreen({ api }: { api: Api }) {
             <>
               {progress(items)}
               <View style={styles.row}>
-                <Button title={`Skip ${selected.length || ''}`.trim()} color={colors.reject} disabled={busy || !selected.length} onPress={() => skipPhotos(selected, helpers, endSelecting)} />
+                <Button title={`Skip ${selected.length || ''}`.trim()} color={colors.muted} disabled={busy || !selected.length} onPress={() => skipPhotos(selected, helpers, endSelecting)} />
                 <Button
                   title={busy ? 'Sending…' : sendable.length ? `Send ${sendable.length} to Lightroom` : 'Select photos to send'}
                   color={colors.accent}
@@ -208,7 +208,7 @@ export function PicksScreen({ api }: { api: Api }) {
               testID="picks-send-one"
             />
             <View style={styles.row}>
-              <Button title="Skip" color={colors.reject} onPress={() => skipPhotos([photo], helpers, helpers.close)} />
+              <Button title="Skip" color={colors.muted} onPress={() => skipPhotos([photo], helpers, helpers.close)} />
               <Button
                 title="Review again"
                 color={colors.muted}

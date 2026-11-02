@@ -119,7 +119,7 @@ export function CameraSection({ api }: { api: Api }) {
       <View style={styles.header}>
         <Text style={styles.title}>Camera</Text>
         <View style={styles.stateRow}>
-          <View style={[styles.dot, { backgroundColor: running ? colors.pick : settings.instanceState === 'stopped' ? colors.reject : colors.muted }]} />
+          <View style={[styles.dot, { backgroundColor: running ? colors.accent : colors.muted }]} />
           <Text style={styles.state}>receiver {settings.instanceState}</Text>
         </View>
       </View>
@@ -136,7 +136,7 @@ export function CameraSection({ api }: { api: Api }) {
             <Ionicons
               name={copied === r.label ? 'checkmark' : 'copy-outline'}
               size={17}
-              color={copied === r.label ? colors.pick : colors.muted}
+              color={copied === r.label ? colors.accent : colors.muted}
               accessibilityLabel={copied === r.label ? 'copied' : `copy ${r.label}`}
             />
           </Pressable>
@@ -166,8 +166,8 @@ export function CameraSection({ api }: { api: Api }) {
       <View style={styles.card}>
         <Text style={styles.help}>Stop it between shoots; it costs almost nothing while stopped and the camera settings stay valid. Starting takes about a minute.</Text>
         <View style={styles.actions}>
-          <Button title={busy === 'start' ? 'Starting…' : 'Start'} color={colors.pick} onPress={() => power('start')} disabled={busy !== null || running} style={{ flex: 1 }} />
-          <Button title={busy === 'stop' ? 'Stopping…' : 'Stop'} color={colors.reject} onPress={() => power('stop')} disabled={busy !== null || settings.instanceState !== 'running'} style={{ flex: 1 }} />
+          <Button title={busy === 'start' ? 'Starting…' : 'Start'} color={colors.accent} onPress={() => power('start')} disabled={busy !== null || running} style={{ flex: 1 }} />
+          <Button title={busy === 'stop' ? 'Stopping…' : 'Stop'} color={colors.muted} onPress={() => power('stop')} disabled={busy !== null || settings.instanceState !== 'running'} style={{ flex: 1 }} />
           <Button title="Refresh" color={colors.muted} onPress={() => void load()} />
         </View>
       </View>

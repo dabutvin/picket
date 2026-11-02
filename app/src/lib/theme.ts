@@ -1,8 +1,9 @@
 import { Platform } from 'react-native';
 
 /**
- * One palette built around the violet accent: the greys lean slightly violet so every surface
- * belongs with it, and pick/skip are emerald and rose, which sit beside violet without fighting it.
+ * One palette built around the violet accent; the greys lean slightly violet so every surface
+ * belongs with it. Violet is the only hue in ordinary use (picks, the main action, done states).
+ * `danger` is kept for errors, failed uploads and destructive actions; skipping is neutral grey.
  */
 export const colors = {
   bg: '#0d0c12',
@@ -11,11 +12,11 @@ export const colors = {
   raised: '#24212f',
   text: '#f4f2fa',
   muted: '#9b97aa',
-  pick: '#34d399',
-  reject: '#fb7185',
+  /** Errors, failed uploads, destructive actions. Nothing else. */
+  danger: '#fb7185',
   accent: '#a78bfa',
   border: '#2c2939',
-  /** Text on a filled accent/pick/reject button. */
+  /** Text on a filled accent button. */
   onFill: '#140f22',
 } as const;
 

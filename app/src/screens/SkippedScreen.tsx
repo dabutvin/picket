@@ -23,7 +23,7 @@ export function SkippedScreen({ api, title = 'Skipped', headerExtra }: { api: Ap
         <View style={styles.row}>
           <Button
             title="Make it a pick"
-            color={colors.pick}
+            color={colors.accent}
             style={styles.grow}
             onPress={() => {
               noteDecision(photo, 'pick');

@@ -62,9 +62,9 @@ export function NotificationsSection({ api, push, onEnable, onReminders }: Props
           {'Picket tells you when a batch of photos starts syncing from the camera, and again when it’s done with how many came in. Photos sent while you’re still shooting (taken under 10 minutes before they sync) don’t notify. The app icon shows how many are waiting to review.'}
         </Text>
         {status === 'on' && push?.serverReady === false && (
-          <Text style={[styles.help, { color: colors.reject }]}>The server has no APNs key yet, so nothing is sent until it is added and deployed.</Text>
+          <Text style={[styles.help, { color: colors.danger }]}>The server has no APNs key yet, so nothing is sent until it is added and deployed.</Text>
         )}
-        {status === 'error' && push?.error && <Text style={[styles.help, { color: colors.reject }]}>{push.error}</Text>}
+        {status === 'error' && push?.error && <Text style={[styles.help, { color: colors.danger }]}>{push.error}</Text>}
         {status === 'undetermined' || status === 'error' ? (
           <Button title="Turn on notifications" variant="filled" onPress={onEnable} testID="notifications-enable" />
         ) : status === 'denied' ? (
@@ -72,7 +72,7 @@ export function NotificationsSection({ api, push, onEnable, onReminders }: Props
         ) : status === 'on' ? (
           <Button title={testing ? 'Sending…' : 'Send a test notification'} color={colors.muted} onPress={test} disabled={testing} testID="notifications-test" />
         ) : null}
-        {result && <Text style={[styles.help, { color: result.ok ? colors.pick : colors.reject }]}>{result.text}</Text>}
+        {result && <Text style={[styles.help, { color: result.ok ? colors.accent : colors.danger }]}>{result.text}</Text>}
         {status === 'on' && (
           <View style={styles.row}>
             <View style={styles.rowText}>

@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
   metaText: { flex: 1, gap: 2 },
   fileName: { color: colors.text, fontWeight: '600' },
   meta: { color: colors.muted, fontSize: 12 },
-  error: { color: colors.reject, fontSize: 12 },
+  error: { color: colors.danger, fontSize: 12 },
   exportRow: { flexDirection: 'row', gap: 10 },
   grow: { flex: 1 },
   exportNote: { color: colors.muted, fontSize: 11, lineHeight: 15 },
