@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only report on how photos arrive from the camera, to tune new-photo notifications (ADR-010).
+"""Read-only report on how photos arrive from the camera (context for new-photo notifications, ADR-010).
 
 Input: the JSON of `aws dynamodb scan --projection-expression "uploadedAt, capturedAt"` on stdin.
 Output (stdout, Markdown): gaps between consecutive uploads, and how many bursts / what sizes and

@@ -35,12 +35,15 @@ if (supported) {
 const allowed = (p: Notifications.NotificationPermissionsStatus) => p.granted;
 
 /**
- * Register this phone for pushes. With `ask`, shows the iOS permission prompt if it was never
- * shown; without, only registers when permission is already there (every launch, which also
- * refreshes a rotated token).
+ * Register this phone for pushes, and tell the server the app is open (POST /devices records
+ * `openedAt`, which re-arms the next "syncing" push). Called on launch and every return to the
+ * foreground. With `ask`, shows the iOS permission prompt if it was never shown; without, only
+ * registers when permission is already there. Also clears Picket's delivered notifications.
  */
 export async function registerForPush(api: Api, { ask }: { ask: boolean }): Promise<PushState> {
   if (!supported) return { status: 'unsupported' };
+  // The app is in front: whatever Picket put on the lock screen has been seen.
+  void Notifications.dismissAllNotificationsAsync().catch(() => undefined);
   let perm = await Notifications.getPermissionsAsync();
   if (!allowed(perm) && perm.canAskAgain && ask) {
     perm = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });

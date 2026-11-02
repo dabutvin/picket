@@ -173,7 +173,7 @@ jobs:
           [ "$st" = "Success" ]
 
       # Read-only: when photos arrived, gaps between them, and how bursts would split at different
-      # quiet times (tunes QUIET_MS for new-photo notifications, ADR-010). Printed to the job log too,
+      # quiet times, and the shooting rhythm (context for new-photo notifications, ADR-010). Printed to the job log too,
       # since step summaries can't be read through the API.
       - name: Sync history
         if: inputs.action == 'sync-history'

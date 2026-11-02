@@ -1,20 +1,12 @@
 /**
- * New-photo notifications (ADR-010), event-driven. One function, two triggers:
- *
- * - the Photos table stream, filtered to INSERT: new photos. Starts or extends the burst (the
- *   first photo pushes "syncing") and queues a delayed "is it quiet yet?" message per batch;
- * - that delay queue: the message whose photo is still the newest closes the burst and pushes "done".
- *
+ * New-photo notifications (ADR-010). Runs on the Photos table stream, filtered to INSERT: every
+ * batch of new photos pushes "syncing" to each phone that doesn't already hold an unread one.
  * The logic lives in notifications.ts; this file only wires AWS clients.
  */
-import type { DynamoDBStreamEvent, SQSEvent } from 'aws-lambda';
-import { unmarshall } from '@aws-sdk/util-dynamodb';
-import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import type { DynamoDBStreamEvent } from 'aws-lambda';
 import { env } from './config.js';
 import { createStore } from './store.js';
-import { QUIET_MS, createApnsPush, createDynamoDeviceStore, loadApnsKey, onQuiet, onUploads, type NotifierDeps, type PushFn } from './notifications.js';
-import type { PhotoItem } from './types.js';
+import { createApnsPush, createDynamoDeviceStore, loadApnsKey, onUploads, type NotifierDeps, type PushFn } from './notifications.js';
 
 /** The APNs key, re-read now and then so a key added by a later deploy is picked up by a warm container. */
 export function cachedPush(secretId: string | undefined, topic: string, ttlMs = 5 * 60_000): () => Promise<PushFn | null> {
@@ -28,31 +20,14 @@ export function cachedPush(secretId: string | undefined, topic: string, ttlMs = 
   };
 }
 
-/** uploadedAt of each newly inserted photo in a stream batch (re-sent frames are MODIFY and never count). */
-export function insertedUploads(event: DynamoDBStreamEvent): string[] {
-  const out: string[] = [];
-  for (const r of event.Records) {
-    if (r.eventName !== 'INSERT' || !r.dynamodb?.NewImage) continue;
-    const row = unmarshall(r.dynamodb.NewImage as Record<string, AttributeValue>) as PhotoItem;
-    out.push(row.uploadedAt || new Date().toISOString());
-  }
-  return out;
-}
+/** New photos in a stream batch (a re-sent frame is a MODIFY and never counts; the event filter drops those too). */
+export const insertedCount = (event: DynamoDBStreamEvent) => event.Records.filter((r) => r.eventName === 'INSERT').length;
 
 export function createNotifierHandler(deps: () => Promise<NotifierDeps>) {
-  return async (event: DynamoDBStreamEvent | SQSEvent) => {
-    const d = await deps();
-    const first = event.Records[0] as { eventSource?: string } | undefined;
-    if (first?.eventSource === 'aws:sqs') {
-      for (const r of (event as SQSEvent).Records) {
-        const { lastUploadAt } = JSON.parse(r.body) as { lastUploadAt: string };
-        const out = await onQuiet(lastUploadAt, d);
-        if (out.done) console.log('burst done', JSON.stringify(out));
-      }
-      return;
-    }
-    const out = await onUploads(insertedUploads(event as DynamoDBStreamEvent), d);
-    if (out.started) console.log('burst started');
+  return async (event: DynamoDBStreamEvent) => {
+    const out = await onUploads(insertedCount(event), await deps());
+    if (out.notified) console.log('notified', JSON.stringify(out));
+    return out;
   };
 }
 
@@ -66,10 +41,5 @@ export const handler = (() => {
   });
   const devices = createDynamoDeviceStore(env('NOTIFY_TABLE'));
   const push = cachedPush(process.env.APNS_SECRET_ARN, env('APNS_TOPIC'));
-  const sqs = new SQSClient({});
-  const queueUrl = env('QUIET_QUEUE_URL');
-  const later = async (lastUploadAt: string) => {
-    await sqs.send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify({ lastUploadAt }), DelaySeconds: QUIET_MS / 1000 }));
-  };
-  return createNotifierHandler(async () => ({ store, devices, push: await push(), later }));
+  return createNotifierHandler(async () => ({ store, devices, push: await push() }));
 })();

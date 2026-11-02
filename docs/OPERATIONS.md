@@ -69,7 +69,7 @@ couple of minutes. Running it when nothing changed is harmless.
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
 | `receiver-logs` | health report from the instance over Session Manager: cloud-init result, pure-ftpd state and log, certificate in use, Picket log lines. First stop when the camera can't connect. |
-| `sync-history` | read-only: when photos arrived from the camera, the gaps between them, and how many bursts each quiet time would make (overall, per day, the latest 40). For tuning `QUIET_MS` of the new-photo notifications. |
+| `sync-history` | read-only: when photos arrived from the camera, the gaps between them, how many bursts each quiet time would make (overall, per day, the latest 40), and the shooting rhythm from capture times. |
 | `lightroom-debug` | the pick → Lightroom pipeline in one log: queue depths, every photo by Lightroom status, router and uploader CloudWatch events, a peek at the dead-letter queue. First stop when a pick sticks on Queued or Failed. |
 | `migrate-photo-ids` | one-off: moves rows from the legacy photo id (hash of the S3 key, which carried the upload date) to the current one (file name + capture time). Dry run unless the confirm box says `migrate`. Needed once after #23; harmless to re-run. |
 | `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
@@ -171,8 +171,8 @@ Known limits:
 
 ## Notifications (one-time APNs key)
 
-Picket pushes "Photos are syncing" when the first photo of a burst arrives and "Done: N new
-photos synced" 5 minutes after the last one (ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
+Picket pushes "New photos are syncing" when photos start arriving, then stays quiet until the
+app has been opened (ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
 create one, so this is done once in a browser (a phone works):
 
 1. developer.apple.com → Account → Certificates, Identifiers & Profiles → **Keys** → **+**.
@@ -208,8 +208,9 @@ regenerates the profile by itself. The notifier logs to the `NotifierLogGroup` o
 - **No notification after a shoot**: Settings → Notifications should say *On for this
   phone* (if *Off in iOS Settings*, tap Open iOS Settings). **Send a test notification**: *no
   APNs key* means step 4–5 above; *Apple refused the push* usually means a key or team id typo
-  (the notifier log has Apple's reason). "Done" comes 5 minutes after the last photo; a re-sent
-  frame never counts as new.
+  (the notifier log has Apple's reason). Only one push is sent until the app is opened, so a
+  notification swiped away unopened holds the next one back; open the app to re-arm it. A
+  re-sent frame never counts as new.
 - **Change the camera password**: app → Camera → Set or Generate, then update
   the camera. **New phone or reinstall**: `ops → pairing-code`, enter it in
   Settings.

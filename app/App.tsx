@@ -96,6 +96,14 @@ export default function App() {
     [api, demo],
   );
   useEffect(() => enablePush(true), [enablePush]);
+  // Coming back to the app is "seen": clear Picket's notifications and tell the server, which
+  // re-arms the next "syncing" push (it sends one, then waits until the app has been opened).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') enablePush(false);
+    });
+    return () => sub.remove();
+  }, [enablePush]);
   const openReview = useCallback(() => setTab('review'), []);
   useEffect(() => onNotificationOpened(openReview), [openReview]);
   const unreviewed = stats?.photos.unreviewed;

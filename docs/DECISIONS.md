@@ -233,37 +233,40 @@ changes from another phone (Elise's) show up within seconds. The saved lists are
 about 0.4 KB a photo. Pull-to-refresh still reloads a tab in full, as a safety valve. A sign-out
 or a cache-format change costs one full load per tab.
 
-## ADR-010: New-photo notifications go straight to APNs, two per burst
+## ADR-010: One "photos are syncing" push, then quiet until the app is opened
 
-**Context.** Photos arrive from the camera a few seconds apart for as long as a shoot lasts, and
-nobody wants a buzz per frame. What is worth knowing is that photos have started coming in, and
-then that they have stopped and how many there are. The app is iOS only and is built with local
-signing credentials (ADR-007), so Expo's push service would need an APNs key uploaded to EAS anyway.
+**Context.** Photos arrive from the camera a few seconds apart, either as a batch after a shoot
+(what `ops → sync-history` shows so far: 45–420 photos at one every 2–25 s) or, with live
+transfer, a trickle for as long as the shoot lasts, with pauses of anything from seconds to
+an hour. Nobody wants a buzz per frame, and any "is it done yet?" timer either splits a live
+shoot into many notifications or makes a batch wait. What matters is knowing photos have started
+coming in; the Review badge tells the rest. The app is iOS only and is built with local signing
+credentials (ADR-007), so Expo's push service would need an APNs key uploaded to EAS anyway.
 
 **Decision.**
-- The app asks for notification permission once it is paired and registers the raw APNs device
-  token (`getDevicePushTokenAsync`) with `POST /devices` on every launch; tokens live in a small
-  `Notify` table (`pk = devices`, `sk = device#<token>`) next to one `burst` row.
-- Event-driven, nothing polls. The notifier Lambda reads the Photos table stream filtered to
-  `INSERT` (the preview Lambda's upsert is an INSERT for a new frame and a MODIFY for a re-send,
-  so re-sends never count). One atomic update adds the batch to the `burst` row
-  (`startedAt = if_not_exists(...)`, `ADD count`, `lastUploadAt`); the caller that found no
-  `startedAt` pushes **"Photos are syncing from the camera…"**. Every batch also sends an SQS
-  message delayed by 5 minutes carrying the `lastUploadAt` it wrote.
-- When a message comes due, the notifier deletes the `burst` row on the condition that
-  `lastUploadAt` still equals the message's value. Only the message for the newest photo can, so
-  the burst closes exactly once, 5 minutes after the last photo, with **"Done: N new photos synced.
-  M to review."** and the badge set to all unreviewed. A burst left open by a lost message is
-  closed silently by the next upload once it is twice the quiet time old.
+- Notify when photos start arriving, and never again while that notification is unread. The
+  server can't see a lock screen, so "unread" is approximated per phone with two times in the
+  `Notify` table (`pk = devices`, `sk = device#<token>`): `notifiedAt` (last push) and `openedAt`
+  (last time the app came to the foreground). A phone is due only if it was never notified or
+  has been opened since.
+- The app calls `POST /devices` with its raw APNs token (`getDevicePushTokenAsync`) on launch and
+  on every return to the foreground; that sets `openedAt` and the app clears its delivered
+  notifications at the same moment.
+- The notifier Lambda reads the Photos table stream filtered to `INSERT` (the preview Lambda's
+  upsert is an INSERT for a new frame and a MODIFY for a re-send, so re-sends never count). For
+  each due phone it claims it with a conditional write (`notifiedAt <= openedAt` or absent), so
+  concurrent batches send once, then pushes "New photos are syncing from your camera." with the
+  badge set to all unreviewed.
+- Every push carries the same `apns-collapse-id`, so if two ever reach a phone the newer replaces
+  the older instead of stacking.
 - Pushes go from the Lambda to `api.push.apple.com` over HTTP/2 with a token-based APNs key
   (`{keyId, teamId, p8}` in a Secrets Manager secret the deploy fills from GitHub secrets). Apple's
   410 / `BadDeviceToken` answers delete the token.
 - The bundle id gets the Push Notifications capability through the App Store Connect API in
   `apple-signing.mjs`, which recreates the profile once so it carries the entitlement.
 
-**Consequences.** "Syncing" arrives within seconds of the first frame; "done" 5 minutes after the
-last. A gap of more than 5 minutes inside a shoot makes it two bursts (two pairs of pushes);
-`QUIET_MS` in `services/api/src/notifications.ts` is the one knob. Nothing third-party sits in
-the path, and nothing runs while the camera is idle. The APNs key is one manual step: Apple's API
-cannot create it. Without it everything still deploys and bursts are tracked silently. The app
-also keeps the icon badge equal to the Review count while it is open.
+**Consequences.** One notification per batch, and one per live shoot, however long, until the app
+is opened. A notification swiped away without opening the app counts as unread, so the next one
+waits for the next time the app is opened. Nothing third-party sits in the path, and nothing runs
+while the camera is idle. The APNs key is one manual step: Apple's API cannot create it. Without
+it everything still deploys and nothing is sent or claimed.

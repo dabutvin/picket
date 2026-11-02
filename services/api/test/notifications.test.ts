@@ -1,128 +1,102 @@
 import { createServer, constants, type Http2Server } from 'node:http2';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DynamoDBStreamEvent, SQSEvent } from 'aws-lambda';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import type { DynamoDBStreamEvent } from 'aws-lambda';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  QUIET_MS,
+  COLLAPSE_ID,
   apnsJwt,
   createApnsPush,
   createDynamoDeviceStore,
   createMemoryDeviceStore,
   createNotificationService,
-  donePayload,
   isDeviceToken,
-  onQuiet,
   onUploads,
   pushResult,
   syncingPayload,
+  type Device,
   type PushFn,
 } from '../src/notifications.js';
-import { createNotifierHandler, insertedUploads } from '../src/notifier.js';
+import { createNotifierHandler, insertedCount } from '../src/notifier.js';
 import { createApp } from '../src/app.js';
-import { body, deps, ev, fakeStore, item } from './helpers.js';
+import { body, deps, ev, fakeStore } from './helpers.js';
 
 const T0 = Date.parse('2026-11-01T10:00:00.000Z');
 const at = (ms: number) => new Date(T0 + ms).toISOString();
 const min = 60_000;
 const TOKEN_A = 'a'.repeat(64);
 const TOKEN_B = 'b'.repeat(64);
-
-const later = () => vi.fn<(lastUploadAt: string) => Promise<void>>(async () => undefined);
+const phone = (token: string, extra: Partial<Device> = {}): Device => ({ token, platform: 'ios', openedAt: at(-60 * min), ...extra });
 const okPush = () => vi.fn<PushFn>(async (tokens) => tokens.map((token) => ({ token, ok: true as const })));
-const phone = { token: TOKEN_A, platform: 'ios' as const, registeredAt: at(0) };
 const quiet = () => undefined;
 
-describe('a burst: "syncing" on the first photo, "done" once it goes quiet', () => {
-  it('pushes "syncing" once per burst and queues a quiet check for every batch', async () => {
-    const devices = createMemoryDeviceStore([phone]);
+describe('one "syncing" push, then nothing until the app is opened', () => {
+  it('notifies on the first new photos, with the unreviewed count as the badge and the shared collapse id', async () => {
+    const devices = createMemoryDeviceStore([phone(TOKEN_A)]);
     const push = okPush();
-    const q = later();
-    const deps = { store: fakeStore(), devices, push, later: q, now: () => new Date(T0), log: quiet };
-    expect(await onUploads([at(0)], deps)).toEqual({ started: true });
-    expect(await onUploads([at(1 * min), at(2 * min)], deps)).toEqual({ started: false });
-    expect(push).toHaveBeenCalledTimes(1);
-    expect(push).toHaveBeenCalledWith([TOKEN_A], syncingPayload());
-    expect(q.mock.calls.map((c) => c[0])).toEqual([at(0), at(2 * min)]);
-    expect(devices.burst).toMatchObject({ count: 3, lastUploadAt: at(2 * min) });
-  });
-
-  it('only the check for the newest photo closes the burst, and says how many with the badge', async () => {
-    const devices = createMemoryDeviceStore([phone], { startedAt: at(0), lastUploadAt: at(2 * min), count: 3 });
-    const push = okPush();
-    const deps = { store: fakeStore(), devices, push, later: later(), log: quiet };
-    // An earlier photo's check comes due: a newer photo arrived since, so nothing happens.
-    expect(await onQuiet(at(0), deps)).toEqual({ done: false });
-    expect(push).not.toHaveBeenCalled();
+    const out = await onUploads(3, { store: fakeStore(), devices, push, now: () => new Date(T0), log: quiet });
+    expect(out).toMatchObject({ notified: 1 });
     // fakeStore counts 5 unreviewed.
-    expect(await onQuiet(at(2 * min), deps)).toMatchObject({ done: true, count: 3, delivered: 1 });
-    expect(push).toHaveBeenCalledWith([TOKEN_A], donePayload(3, 5));
-    expect(donePayload(3, 5).aps).toMatchObject({ alert: { body: 'Done: 3 new photos synced. 5 to review.' }, badge: 5 });
-    expect(donePayload(1, 1).aps.alert?.body).toBe('Done: 1 new photo synced. 1 to review.');
-    expect(devices.burst).toBeUndefined();
-    // A duplicate delivery of the same message finds the burst already closed.
-    expect(await onQuiet(at(2 * min), deps)).toEqual({ done: false });
+    expect(push).toHaveBeenCalledWith([TOKEN_A], syncingPayload(5), { collapseId: COLLAPSE_ID });
+    expect(syncingPayload(5).aps).toMatchObject({ alert: { body: 'New photos are syncing from your camera.' }, badge: 5 });
+    expect(devices.devices[0]!.notifiedAt).toBe(at(0));
+  });
+
+  it('stays silent for the rest of the batch, later batches and a live shoot, until the app is opened', async () => {
+    const devices = createMemoryDeviceStore([phone(TOKEN_A)]);
+    const push = okPush();
+    let now = T0;
+    const d = { store: fakeStore(), devices, push, now: () => new Date(now), log: quiet };
+    await onUploads(1, d);
+    for (const later of [10_000, 30 * min, 3 * 60 * min]) {
+      now = T0 + later;
+      expect(await onUploads(5, d)).toEqual({ notified: 0 });
+    }
     expect(push).toHaveBeenCalledTimes(1);
+    // Opening the app re-arms it: the next new photo notifies again.
+    await devices.opened(TOKEN_A, undefined, at(4 * 60 * min));
+    now = T0 + 5 * 60 * min;
+    expect(await onUploads(1, d)).toMatchObject({ notified: 1 });
+    expect(push).toHaveBeenCalledTimes(2);
   });
 
-  it('the next shoot is a new burst with its own "syncing"', async () => {
-    const devices = createMemoryDeviceStore([phone]);
+  it('decides per phone: one that already has an unread push is skipped, the other is told', async () => {
+    const devices = createMemoryDeviceStore([phone(TOKEN_A, { notifiedAt: at(-1 * min) }), phone(TOKEN_B)]);
     const push = okPush();
-    const deps = { store: fakeStore(), devices, push, later: later(), now: () => new Date(T0), log: quiet };
-    await onUploads([at(0)], deps);
-    await onQuiet(at(0), deps);
-    expect(await onUploads([at(60 * min)], deps)).toEqual({ started: true });
-    expect(push.mock.calls.map((c) => c[1].kind)).toEqual(['syncing', 'done', 'syncing']);
-  });
-
-  it('a burst left open by a lost check does not swallow the next "syncing"', async () => {
-    const devices = createMemoryDeviceStore([phone], { startedAt: at(0), lastUploadAt: at(0), count: 4 });
-    const push = okPush();
-    const deps = { store: fakeStore(), devices, push, later: later(), now: () => new Date(T0 + 2 * QUIET_MS + 1), log: quiet };
-    expect(await onUploads([at(2 * QUIET_MS)], deps)).toEqual({ started: true });
-    expect(devices.burst?.count).toBe(1);
+    await onUploads(2, { store: fakeStore(), devices, push, now: () => new Date(T0), log: quiet });
+    expect(push).toHaveBeenCalledWith([TOKEN_B], expect.anything(), expect.anything());
   });
 
   it('forgets tokens Apple says are gone', async () => {
-    const devices = createMemoryDeviceStore([phone, { token: TOKEN_B, platform: 'ios', registeredAt: at(0) }], { startedAt: at(0), lastUploadAt: at(0), count: 1 });
+    const devices = createMemoryDeviceStore([phone(TOKEN_A), phone(TOKEN_B)]);
     const push: PushFn = async (tokens) => tokens.map((token) => (token === TOKEN_B ? pushResult(token, 410, '{"reason":"Unregistered"}') : { token, ok: true as const }));
-    expect(await onQuiet(at(0), { store: fakeStore(), devices, push, later: later(), log: quiet })).toMatchObject({ delivered: 1, removed: 1 });
+    expect(await onUploads(1, { store: fakeStore(), devices, push, now: () => new Date(T0), log: quiet })).toMatchObject({ delivered: 1, removed: 1 });
     expect(devices.devices.map((d) => d.token)).toEqual([TOKEN_A]);
   });
 
-  it('tracks bursts without an APNs key and sends nothing', async () => {
-    const devices = createMemoryDeviceStore();
-    const deps = { store: fakeStore(), devices, push: null, later: later(), now: () => new Date(T0), log: quiet };
-    expect(await onUploads([at(0)], deps)).toEqual({ started: true });
-    expect(await onQuiet(at(0), deps)).toEqual({ done: true, count: 1 });
+  it('claims nothing without an APNs key, so the first push after the key is added still goes out', async () => {
+    const devices = createMemoryDeviceStore([phone(TOKEN_A)]);
+    expect(await onUploads(4, { store: fakeStore(), devices, push: null, log: quiet })).toEqual({ notified: 0 });
+    expect(devices.devices[0]!.notifiedAt).toBeUndefined();
   });
 });
 
 describe('notifier handler', () => {
-  const insert = (eventName: 'INSERT' | 'MODIFY', uploadedAt: string) => ({
-    eventSource: 'aws:dynamodb',
-    eventName,
-    dynamodb: { NewImage: marshall(item('x', 'unreviewed', { uploadedAt })) },
-  });
-
-  it('counts only inserts from the stream (a re-sent frame is a MODIFY)', () => {
-    const event = { Records: [insert('INSERT', at(0)), insert('MODIFY', at(1 * min)), insert('INSERT', at(2 * min))] } as unknown as DynamoDBStreamEvent;
-    expect(insertedUploads(event)).toEqual([at(0), at(2 * min)]);
-  });
-
-  it('routes stream batches to onUploads and queue messages to onQuiet', async () => {
-    const devices = createMemoryDeviceStore([phone]);
+  it('counts only inserts (a re-sent frame is a MODIFY) and notifies', async () => {
+    const event = { Records: [{ eventName: 'INSERT' }, { eventName: 'MODIFY' }, { eventName: 'INSERT' }] } as unknown as DynamoDBStreamEvent;
+    expect(insertedCount(event)).toBe(2);
     const push = okPush();
-    const q = later();
-    const handle = createNotifierHandler(async () => ({ store: fakeStore(), devices, push, later: q, now: () => new Date(T0), log: quiet }));
-    await handle({ Records: [insert('INSERT', at(0))] } as unknown as DynamoDBStreamEvent);
-    expect(q).toHaveBeenCalledWith(at(0));
-    await handle({ Records: [{ eventSource: 'aws:sqs', body: JSON.stringify({ lastUploadAt: at(0) }) }] } as unknown as SQSEvent);
-    expect(push.mock.calls.map((c) => c[1].kind)).toEqual(['syncing', 'done']);
+    const handle = createNotifierHandler(async () => ({ store: fakeStore(), devices: createMemoryDeviceStore([phone(TOKEN_A)]), push, log: quiet }));
+    expect(await handle(event)).toMatchObject({ notified: 1 });
+    expect(await handle({ Records: [{ eventName: 'MODIFY' }] } as unknown as DynamoDBStreamEvent)).toEqual({ notified: 0 });
   });
 });
+
+const ecKey = () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  return { p8: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), publicKey };
+};
 
 describe('pushResult', () => {
   it('treats 410 and bad tokens as gone, other errors as transient', () => {
@@ -134,10 +108,6 @@ describe('pushResult', () => {
   });
 });
 
-const ecKey = () => {
-  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
-  return { p8: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), publicKey };
-};
 
 describe('apnsJwt', () => {
   it('is an ES256 token Apple can verify with the key id and team id', () => {
@@ -155,12 +125,12 @@ describe('createApnsPush', () => {
   afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve())));
 
   it('POSTs each token over one HTTP/2 connection with the topic and bearer token', async () => {
-    const seen: { path: string; topic: string; auth: string; body: string }[] = [];
+    const seen: { path: string; topic: string; auth: string; collapse: string; body: string }[] = [];
     server = createServer((req, res) => {
       let data = '';
       req.on('data', (c: Buffer) => (data += c));
       req.on('end', () => {
-        seen.push({ path: req.headers[constants.HTTP2_HEADER_PATH] as string, topic: req.headers['apns-topic'] as string, auth: req.headers.authorization as string, body: data });
+        seen.push({ path: req.headers[constants.HTTP2_HEADER_PATH] as string, topic: req.headers['apns-topic'] as string, collapse: req.headers['apns-collapse-id'] as string, auth: req.headers.authorization as string, body: data });
         if ((req.headers[constants.HTTP2_HEADER_PATH] as string).endsWith(TOKEN_B)) {
           res.writeHead(410).end('{"reason":"Unregistered"}');
         } else {
@@ -171,13 +141,14 @@ describe('createApnsPush', () => {
     await new Promise<void>((resolve) => server!.listen(0, resolve));
     const port = (server.address() as AddressInfo).port;
     const push = createApnsPush({ keyId: 'K', teamId: 'T', ...ecKey() }, 'com.danbut.picket', `http://localhost:${port}`);
-    const results = await push([TOKEN_A, TOKEN_B], donePayload(4, 9));
+    const results = await push([TOKEN_A, TOKEN_B], syncingPayload(9), { collapseId: COLLAPSE_ID });
     expect(results).toEqual([
       { token: TOKEN_A, ok: true },
       { token: TOKEN_B, ok: false, status: 410, reason: 'Unregistered', gone: true },
     ]);
     expect(seen.map((s) => s.path).sort()).toEqual([`/3/device/${TOKEN_A}`, `/3/device/${TOKEN_B}`]);
     expect(seen[0]!.topic).toBe('com.danbut.picket');
+    expect(seen[0]!.collapse).toBe(COLLAPSE_ID);
     expect(seen[0]!.auth).toMatch(/^bearer [\w-]+\.[\w-]+\.[\w-]+$/);
     expect(JSON.parse(seen[0]!.body).aps.badge).toBe(9);
   });
@@ -228,7 +199,7 @@ describe('device routes', () => {
   });
 });
 
-describe('DynamoDB burst row', () => {
+describe('DynamoDB device rows', () => {
   const fake = (reply: (input: Record<string, unknown>) => unknown) => {
     const inputs: Record<string, unknown>[] = [];
     const ddb = {
@@ -240,27 +211,26 @@ describe('DynamoDB burst row', () => {
     return { ddb, inputs };
   };
 
-  it('adds to the burst in one atomic write and starts it only when there was none', async () => {
-    const { ddb, inputs } = fake(() => ({ Attributes: undefined }));
-    expect(await createDynamoDeviceStore('n', ddb).noteUploads(2, at(1 * min), at(0))).toEqual({ started: true });
+  it('opening the app updates the row in place, keeping notifiedAt', async () => {
+    const { ddb, inputs } = fake(() => ({}));
+    await createDynamoDeviceStore('n', ddb).opened(TOKEN_A, 'iPhone', at(0));
     expect(inputs[0]).toMatchObject({
-      Key: { pk: 'burst', sk: 'burst' },
-      UpdateExpression: 'SET startedAt = if_not_exists(startedAt, :now), lastUploadAt = :last ADD #c :n',
-      ExpressionAttributeValues: { ':now': at(0), ':last': at(1 * min), ':n': 2 },
-      ReturnValues: 'UPDATED_OLD',
+      Key: { pk: 'devices', sk: `device#${TOKEN_A}` },
+      UpdateExpression: 'SET #t = :t, platform = :p, openedAt = :now, #n = :n',
+      ExpressionAttributeValues: { ':t': TOKEN_A, ':p': 'ios', ':now': at(0), ':n': 'iPhone' },
     });
-    const busy = fake(() => ({ Attributes: { startedAt: at(-1 * min), lastUploadAt: at(0), count: 3 } }));
-    expect(await createDynamoDeviceStore('n', busy.ddb).noteUploads(1, at(1 * min), at(1 * min))).toEqual({ started: false });
   });
 
-  it('closes only if no newer photo arrived, and reads a failed condition as "not mine to close"', async () => {
-    const burst = { startedAt: at(0), lastUploadAt: at(2 * min), count: 3 };
-    const { ddb, inputs } = fake(() => ({ Attributes: burst }));
-    expect(await createDynamoDeviceStore('n', ddb).closeBurst(at(2 * min))).toEqual(burst);
-    expect(inputs[0]).toMatchObject({ ConditionExpression: 'lastUploadAt = :last', ExpressionAttributeValues: { ':last': at(2 * min) }, ReturnValues: 'ALL_OLD' });
-    const moved = fake(() => {
+  it('claims a phone only if it holds no unread push, and reads a failed condition as "already told"', async () => {
+    const { ddb, inputs } = fake(() => ({}));
+    expect(await createDynamoDeviceStore('n', ddb).claim(TOKEN_A, at(0))).toBe(true);
+    expect(inputs[0]).toMatchObject({
+      UpdateExpression: 'SET notifiedAt = :now',
+      ConditionExpression: 'attribute_exists(sk) AND (attribute_not_exists(notifiedAt) OR notifiedAt <= openedAt)',
+    });
+    const told = fake(() => {
       throw Object.assign(new Error('nope'), { name: 'ConditionalCheckFailedException' });
     });
-    expect(await createDynamoDeviceStore('n', moved.ddb).closeBurst(at(0))).toBeUndefined();
+    expect(await createDynamoDeviceStore('n', told.ddb).claim(TOKEN_A, at(0))).toBe(false);
   });
 });
