@@ -10,6 +10,7 @@ import { createApi, type Api } from './src/lib/api';
 import type { Stats } from './src/lib/types';
 import { createDemoApi } from './src/lib/demo';
 import { warm } from './src/lib/photoStore';
+import { onNotificationOpened, registerForPush, setAppBadge, type PushState } from './src/lib/push';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
@@ -43,6 +44,8 @@ const badgeText = (n: number) => (n > 99 ? '99+' : String(n));
 
 /** Start in sample-photos mode (no server): the UI-preview workflow exports the web build with this set. */
 const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_PICKET_DEMO === '1';
+/** Sample photos simulate a phone that already has notifications on. */
+const DEMO_PUSH: PushState = { status: 'on', serverReady: true };
 
 export default function App() {
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
@@ -81,6 +84,50 @@ export default function App() {
     const t = setInterval(refreshStats, STATS_POLL_MS);
     return () => clearInterval(t);
   }, [api, refreshStats, activeTab]);
+
+  // New-photo notifications: ask once a server is paired (the prompt only ever shows once), then
+  // re-register on every launch so a rotated token reaches the server. Sample photos simulate it.
+  const [registered, setRegistered] = useState<PushState | null>(null);
+  const [demoReminders, setDemoReminders] = useState(true);
+  const push: PushState | null = demo ? { ...DEMO_PUSH, reminders: demoReminders } : registered;
+  // The weekly reminder is a per-phone setting kept on the server; flip it optimistically.
+  const setReminders = useCallback(
+    (on: boolean) => {
+      if (demo) {
+        setDemoReminders(on);
+        return;
+      }
+      const token = registered?.token;
+      if (!api || !token) return;
+      setRegistered((p) => p && { ...p, reminders: on });
+      api.registerDevice(token, { reminders: on }).then(
+        (r) => setRegistered((p) => p && { ...p, reminders: r.reminders }),
+        () => setRegistered((p) => p && { ...p, reminders: !on }),
+      );
+    },
+    [api, demo, registered?.token],
+  );
+  const enablePush = useCallback(
+    (ask: boolean) => {
+      if (api && !demo) void registerForPush(api, { ask }).then(setRegistered);
+    },
+    [api, demo],
+  );
+  useEffect(() => enablePush(true), [enablePush]);
+  // Coming back to the app: clear Picket's notifications (they've been seen) and re-register, so a
+  // rotated push token reaches the server.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') enablePush(false);
+    });
+    return () => sub.remove();
+  }, [enablePush]);
+  const openReview = useCallback(() => setTab('review'), []);
+  useEffect(() => onNotificationOpened(openReview), [openReview]);
+  const unreviewed = stats?.photos.unreviewed;
+  useEffect(() => {
+    if (unreviewed !== undefined && !demo) setAppBadge(unreviewed);
+  }, [unreviewed, demo]);
 
   const badges: Partial<Record<Tab, { count: number; alert?: boolean }>> = stats
     ? {
@@ -121,6 +168,9 @@ export default function App() {
               initial={settings ?? null}
               api={api}
               demo={demo}
+              push={push}
+              onEnablePush={() => enablePush(true)}
+              onReminders={setReminders}
               onDemo={(on) => {
                 setDemo(on);
                 setTab(on ? 'review' : 'settings');

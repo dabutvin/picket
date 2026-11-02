@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, migrate-photo-ids, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, sync-history, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, migrate-photo-ids, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action, or "migrate" to apply migrate-photo-ids (otherwise a dry run)
         required: false
@@ -32,12 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs' || inputs.action == 'migrate-photo-ids'
+        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs' || inputs.action == 'migrate-photo-ids' || inputs.action == 'sync-history'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
       - uses: actions/setup-python@v5
-        if: inputs.action == 'destroy' || inputs.action == 'migrate-photo-ids'
+        if: inputs.action == 'destroy' || inputs.action == 'migrate-photo-ids' || inputs.action == 'sync-history'
         with: { python-version: "3.12" }
 
       - name: Pick credential mode
@@ -171,6 +171,25 @@ jobs:
           echo "--- stderr ---"; aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query StandardErrorContent --output text
           { echo "## Receiver health report (\`$IID\`, SSM $st)"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           [ "$st" = "Success" ]
+
+      # Read-only: when photos arrived, gaps between them, and how bursts would split at different
+      # quiet times, and the shooting rhythm (context for new-photo notifications, ADR-010). Printed to the job log too,
+      # since step summaries can't be read through the API.
+      - name: Sync history
+        if: inputs.action == 'sync-history'
+        env:
+          TABLE: ${{ steps.outs.outputs.Table }}
+          BUCKET: ${{ steps.outs.outputs.Bucket }}
+        run: |
+          set -euo pipefail
+          aws dynamodb scan --table-name "$TABLE" --projection-expression "uploadedAt, capturedAt" --output json > scan.json
+          python3 infra/scripts/sync-history.py < scan.json | tee -a "$GITHUB_STEP_SUMMARY"
+          # The camera's time-zone tags on the newest RAW (first 1 MB is enough for the EXIF block).
+          pip install --quiet exifread==3.0.0
+          key=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix raw/ --query "sort_by(Contents[?ends_with(Key, '.ARW')], &LastModified)[-1].Key" --output text)
+          aws s3api get-object --bucket "$BUCKET" --key "$key" --range bytes=0-1048575 head.arw > /dev/null
+          echo "## EXIF time tags on \`$key\`" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import exifread,sys; t=exifread.process_file(open('head.arw','rb'), details=False); [print(f'- {k}: {v}') for k,v in sorted(t.items()) if 'Time' in k or 'Date' in k or 'Offset' in k]" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Reload the camera password on the receiver
         if: inputs.action == 'reload-ftp-password'

@@ -27,7 +27,10 @@ export interface LightroomInfo {
 export interface PhotoItem {
   photoId: string;
   status: PhotoStatus;
+  /** Camera-local (no zone), from EXIF DateTimeOriginal. */
   capturedAt: string;
+  /** The camera's UTC offset at capture ("+02:00", EXIF OffsetTimeOriginal), when the file has it. */
+  capturedOffset?: string;
   uploadedAt: string;
   processedAt?: string;
   decidedAt?: string;

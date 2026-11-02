@@ -87,6 +87,7 @@ export const DEMO_EMAIL = 'sample@example.com';
 const EXPIRED_URLS = typeof globalThis.location?.search === 'string' && globalThis.location.search.includes('expired-urls');
 
 export function createDemoApi(): Api {
+  let reminders = true;
   const photos = new Map(seedPhotos().map((p) => [p.photoId, p]));
   const realUrls = new Map([...photos.values()].map((p) => [p.photoId, { thumbUrl: p.thumbUrl, previewUrl: p.previewUrl }]));
   if (EXPIRED_URLS) {
@@ -225,6 +226,15 @@ export function createDemoApi(): Api {
     async disconnectLightroom() {
       connected = false;
       return lightroomView();
+    },
+    async registerDevice(_token, opts = {}) {
+      await wait(LATENCY_MS);
+      if (opts.reminders !== undefined) reminders = opts.reminders;
+      return { configured: true, devices: 1, reminders };
+    },
+    async testNotification() {
+      await wait(LATENCY_MS);
+      return { configured: true, attempted: 1, delivered: 1, removed: 0 };
     },
     async receiver() {
       await wait(LATENCY_MS);

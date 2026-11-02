@@ -8,6 +8,8 @@ import { loginToAdobe } from '../lib/adobeAuth';
 import { clearAll as clearPhotoCache } from '../lib/photoStore';
 import { Button } from '../components/Button';
 import { CameraSection } from './CameraSection';
+import { NotificationsSection } from './NotificationsSection';
+import type { PushState } from '../lib/push';
 
 interface Props {
   initial: Settings | null;
@@ -15,12 +17,16 @@ interface Props {
   /** Running against the in-app sample photos instead of a server. */
   demo: boolean;
   onDemo: (on: boolean) => void;
+  /** New-photo notifications for this phone (null while checking). */
+  push: PushState | null;
+  onEnablePush: () => void;
+  onReminders: (on: boolean) => void;
   onSaved: (s: Settings | null) => void;
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
-export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
+export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush, onReminders, onSaved }: Props) {
   const [apiUrl, setApiUrl] = useState(initial?.apiUrl ?? '');
   const [code, setCode] = useState('');
   const [testing, setTesting] = useState(false);
@@ -103,6 +109,8 @@ export function SettingsScreen({ initial, api, demo, onDemo, onSaved }: Props) {
       )}
 
       {api && <CameraSection api={api} />}
+
+      {api && <NotificationsSection api={api} push={push} onEnable={onEnablePush} onReminders={onReminders} />}
 
       {api && (
         <>

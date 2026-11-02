@@ -31,6 +31,8 @@ export interface ApiProps {
   dns?: { hostName: string; zone?: route53.IHostedZone; certificateArn?: string };
   /** The FTPS receiver the app manages (settings, password rotation, start/stop). Absent when deployed with receiver=false. */
   receiver?: Receiver;
+  /** Phones register for new-photo pushes here; the API also sends the test push. */
+  notifications?: { table: dynamodb.ITable; apnsKey: secretsmanager.ISecret; bundleId: string };
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -113,6 +115,13 @@ export class Api extends Construct {
           : {}),
         PAIRING_SECRET_ARN: this.pairing.secretArn,
         TOKEN_SECRET_ARN: this.token.secretArn,
+        ...(props.notifications
+          ? {
+              NOTIFY_TABLE: props.notifications.table.tableName,
+              APNS_SECRET_ARN: props.notifications.apnsKey.secretArn,
+              APNS_TOPIC: props.notifications.bundleId,
+            }
+          : {}),
       },
       description: 'Picket: photos API',
     });
@@ -140,6 +149,10 @@ export class Api extends Construct {
     props.bucket.grantRead(apiFn, 'thumbs/*');
     props.lightroomConnection.grantRead(apiFn);
     props.lightroomConnection.grantWrite(apiFn);
+    if (props.notifications) {
+      props.notifications.table.grantReadWriteData(apiFn);
+      props.notifications.apnsKey.grantRead(apiFn);
+    }
 
     const authorizer = new HttpLambdaAuthorizer('Bearer', authorizerFn, {
       responseTypes: [HttpLambdaResponseType.SIMPLE],
@@ -173,6 +186,11 @@ export class Api extends Construct {
     http.addRoutes({ path: '/receiver', methods: [apigw.HttpMethod.GET], integration });
     http.addRoutes({ path: '/receiver/password', methods: [apigw.HttpMethod.POST], integration });
     http.addRoutes({ path: '/receiver/power', methods: [apigw.HttpMethod.POST], integration });
+    if (props.notifications) {
+      http.addRoutes({ path: '/devices', methods: [apigw.HttpMethod.POST], integration });
+      http.addRoutes({ path: '/devices/{token}', methods: [apigw.HttpMethod.DELETE], integration });
+      http.addRoutes({ path: '/notifications/test', methods: [apigw.HttpMethod.POST], integration });
+    }
 
     this.url = http.apiEndpoint;
 

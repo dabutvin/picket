@@ -27,6 +27,8 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   STACK: Picket
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME || 'picket.photos' }}
+  # Weekly "photos waiting to review" push: random time, 9:00–21:00 in this zone (default America/New_York).
+  PICKET_REMINDER_TZ: ${{ vars.REMINDER_TIME_ZONE }}
 
 jobs:
   deploy:
@@ -191,6 +193,29 @@ jobs:
           fi
           echo "managed=true" >> "$GITHUB_OUTPUT"
 
+      # New-photo notifications (ADR-010) send straight to Apple with an APNs auth key. Create it once at
+      # developer.apple.com → Keys → + (Apple Push Notifications service), then add the repository
+      # secrets APNS_KEY_P8 (the .p8 file's contents) and APNS_KEY_ID. Without them nothing is sent.
+      - name: APNs key for notifications
+        id: apns
+        if: inputs.action == 'deploy'
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APNS_KEY_P8" ] || [ -z "$APNS_KEY_ID" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::APNS_KEY_P8 / APNS_KEY_ID (or APPLE_TEAM_ID) not set: new-photo notifications stay off"
+            exit 0
+          fi
+          secret="$(jq -r ".${STACK}.ApnsKeySecret" infra/outputs.json)"
+          jq -n --arg k "$APNS_KEY_ID" --arg t "$APPLE_TEAM_ID" --arg p "$APNS_KEY_P8" '{keyId: $k, teamId: $t, p8: $p}' > /tmp/apns.json
+          aws secretsmanager put-secret-value --secret-id "$secret" --secret-string file:///tmp/apns.json > /dev/null
+          rm -f /tmp/apns.json
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
       - name: Issue an app pairing code
         if: inputs.action == 'deploy'
         run: |
@@ -211,6 +236,12 @@ jobs:
             for k in ApiUrl FtpHost ReceiverIp FtpUser Domain ApiDomainTarget LightroomClientId Bucket Table ReceiverInstanceId UploaderLogGroup UploadDlqUrl; do
               v="$(out $k)"; [ "$v" = "null" ] || echo "| \`$k\` | \`$v\` |"
             done
+            echo
+            if [ "${{ steps.apns.outputs.configured }}" = "true" ]; then
+              echo "New-photo notifications: **on**. Settings → Notifications → Send a test notification."
+            else
+              echo "New-photo notifications: **off**. Add the \`APNS_KEY_P8\` and \`APNS_KEY_ID\` repository secrets (docs/OPERATIONS.md) and deploy again."
+            fi
             echo
             echo "## Pair the app"
             echo

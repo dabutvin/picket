@@ -232,3 +232,54 @@ launch, on returning to the foreground, on every tab open and every 2.5 s during
 changes from another phone (Elise's) show up within seconds. The saved lists are metadata only,
 about 0.4 KB a photo. Pull-to-refresh still reloads a tab in full, as a safety valve. A sign-out
 or a cache-format change costs one full load per tab.
+
+## ADR-010: Two pushes per synced batch ("syncing", "done"); live transfer stays quiet
+
+**Context.** Photos reach S3 in two ways. As a batch after a shoot (everything `ops →
+sync-history` has seen so far: 45 to 420 photos, one every 2 to 25 s, batches at least 15
+minutes apart), or with live transfer while shooting, a trickle with pauses of anything from
+seconds to an hour. A batch is worth two notifications: it started, and it's done with N photos.
+Live transfer is not: you're holding the camera, and any quiet-time rule would split a shoot into
+many pairs. The app is iOS only and built with local signing credentials (ADR-007), so Expo's
+push service would need an APNs key uploaded to EAS anyway.
+
+**Decision.**
+- **Live transfer doesn't count.** The preview Lambda stores the camera's UTC offset
+  (`capturedOffset`, from EXIF `OffsetTimeOriginal`; the a7C II writes it) next to the
+  camera-local `capturedAt`. A photo that reached S3 less than 10 minutes (`LIVE_MS`) after it
+  was taken is ignored by the notifier. A photo without an offset counts, so nothing is
+  silently missed.
+- **Event-driven, nothing polls.** The notifier reads the Photos table stream filtered to
+  `INSERT` (a re-sent frame is a MODIFY and never counts). One atomic update adds the counting
+  photos of each stream batch to a `burst` row in the `Notify` table (`startedAt =
+  if_not_exists(...)`, `ADD count`, `lastUploadAt`); the call that found no `startedAt` pushes
+  **"Photos are syncing from the camera…"**. Each batch also sends an SQS message delayed 3
+  minutes (`QUIET_MS`) carrying the `lastUploadAt` it wrote.
+- **"Done" exactly once.** When a message comes due, the notifier deletes the `burst` row on the
+  condition that `lastUploadAt` still equals the message's value; only the message for the newest
+  photo can, 3 minutes after it, and it pushes **"Done: N new photos synced. M to review."** with
+  the badge set to all unreviewed. A burst left open by a lost message is closed silently by the
+  next upload once it is twice the quiet time old.
+- **Weekly reminder, at a different time each week.** The `Notify` table keeps the next due time
+  (`reminder` row). Each reminder picks the next one 4 to 10 days later at a random minute
+  between 9:00 and 21:00 in `REMINDER_TIME_ZONE` (default America/New_York, the camera's zone),
+  so it averages once a week without becoming a fixture. An EventBridge Scheduler tick every 15
+  minutes invokes the notifier with `{kind: "reminder"}`; when the time has come it moves it on
+  (conditionally, so it fires once) and, if anything is unreviewed, pushes **"N photos waiting
+  to review."** with the badge to every phone that hasn't turned it off. Each phone row has a
+  `reminders` flag set from Settings → Notifications → *Weekly review reminder*
+  (`POST /devices {token, reminders}`); a plain launch never changes it.
+- Phones register their raw APNs device token (`getDevicePushTokenAsync`) with `POST /devices`
+  on launch and on every return to the foreground (which also clears Picket's notifications).
+  Pushes go from the Lambda to `api.push.apple.com` over HTTP/2 with a token-based APNs key
+  (`{keyId, teamId, p8}` in a Secrets Manager secret the deploy fills from GitHub secrets); 410 /
+  `BadDeviceToken` answers delete the token.
+- The bundle id gets the Push Notifications capability through the App Store Connect API in
+  `apple-signing.mjs`, which recreates the profile once so it carries the entitlement.
+
+**Consequences.** A batch gives "syncing" within seconds and "done" 3 minutes after its last
+photo; a live shoot gives nothing (the Review badge still counts it when the app is open). A batch
+synced right after a shoot counts only the frames taken 10 or more minutes earlier. The camera's
+clock matters: if it is far off, live transfer may look like a batch. Nothing third-party sits in
+the path, and nothing runs while the camera is idle. The APNs key is one manual step: Apple's API
+cannot create it. Without it everything still deploys and bursts are tracked silently.
