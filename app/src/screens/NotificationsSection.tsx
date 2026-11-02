@@ -83,6 +83,9 @@ export function NotificationsSection({ api, push, onEnable, onReminders }: Props
               value={push?.reminders !== false}
               onValueChange={onReminders}
               trackColor={{ true: colors.accent, false: colors.border }}
+              thumbColor="#ffffff"
+              // react-native-web colours the "on" knob teal by default; keep it white like iOS.
+              {...({ activeThumbColor: '#ffffff' } as object)}
               testID="notifications-reminders"
               accessibilityLabel="Weekly review reminder"
             />

@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import type { Api } from '../lib/api';
 import type { Photo, PhotoStatus } from '../lib/types';
-import { colors, tint } from '../lib/theme';
+import { colors } from '../lib/theme';
 import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
   subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
   headerActions: { flexDirection: 'row', gap: 14, alignItems: 'center' },
-  iconAction: { width: 32, height: 32, borderRadius: 16, backgroundColor: tint(colors.muted, 0.22), alignItems: 'center', justifyContent: 'center' },
+  iconAction: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   headerAction: { color: colors.accent, fontWeight: '600', paddingBottom: 4 },
   list: { flexGrow: 1, paddingBottom: 8 },
   day: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, paddingBottom: 8 },
