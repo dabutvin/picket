@@ -73,6 +73,7 @@ def test_real_a7cii_file(sample_arw):
     exif = handler.read_exif(str(sample_arw))
     assert exif["camera"] == "ILCE-7CM2"
     assert exif["capturedAt"] == "2023-10-02T18:18:37"
+    assert exif["capturedOffset"] == "+02:00"
     assert exif["aperture"] == "f/7.1"
     assert exif["shutter"] == "1/100"
 
@@ -123,7 +124,7 @@ def test_process_object_stamps_the_change_feed():
         mock.patch.object(handler, "s3", return_value=fake_s3),
         mock.patch.object(handler, "table", return_value=fake_table),
         mock.patch.object(handler, "extract_embedded_jpeg", return_value=b"jpeg"),
-        mock.patch.object(handler, "read_exif", return_value={"capturedAt": "2026-10-30T18:02:11"}),
+        mock.patch.object(handler, "read_exif", return_value={"capturedAt": "2026-10-30T18:02:11", "capturedOffset": "-07:00"}),
         mock.patch.object(handler, "build_renditions", return_value=renditions),
     ):
         handler.process_object("bucket", "raw/2026/10/30/DSC00001.ARW", "2026-10-30T18:05:00Z", 1000)
@@ -131,5 +132,6 @@ def test_process_object_stamps_the_change_feed():
     upd = fake_table.update_item.call_args.kwargs
     written = {name: upd["ExpressionAttributeValues"][":" + ph[1:]] for ph, name in upd["ExpressionAttributeNames"].items() if ph != "#st"}
     assert written["feed"] == "photos"
+    assert written["capturedOffset"] == "-07:00"  # lets the notifier tell live transfer from a later batch
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", written["changedAt"])
     assert "if_not_exists(#st, :unreviewed)" in upd["UpdateExpression"]  # a decision survives re-processing

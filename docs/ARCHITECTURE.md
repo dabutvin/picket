@@ -72,10 +72,13 @@ but keeps an existing decision.
 ### 2b. New-photo notifications
 
 The **notifier** Lambda (`services/api/src/notifier.ts`) reads the Photos table stream, new rows
-only. Each phone registered in the `Notify` table that doesn't already hold an unread Picket push
-gets "New photos are syncing from your camera." straight from Apple's APNs (team auth key), with
-the badge set to the unreviewed count. The app calls `POST /devices` on launch and whenever it
-comes to the foreground, which re-arms the phone; until then later photos stay silent. See ADR-010.
+only, and ignores live transfer (a photo synced within 10 minutes of being taken, judged from
+EXIF capture time plus the camera's UTC offset, `capturedOffset`). The first counting photo of a
+batch pushes "Photos are syncing from the camera…" to every phone registered in the `Notify`
+table; each batch also queues an SQS message delayed 3 minutes, and the one for the newest photo
+closes the batch with "Done: N new photos synced. M to review." (badge = unreviewed count).
+Pushes go straight to Apple's APNs with the team's auth key. The app registers its APNs device
+token with `POST /devices` on launch. See ADR-010.
 
 ### 3. Review (first triage) and Picks (the send step)
 

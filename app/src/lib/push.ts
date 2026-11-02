@@ -35,10 +35,10 @@ if (supported) {
 const allowed = (p: Notifications.NotificationPermissionsStatus) => p.granted;
 
 /**
- * Register this phone for pushes, and tell the server the app is open (POST /devices records
- * `openedAt`, which re-arms the next "syncing" push). Called on launch and every return to the
- * foreground. With `ask`, shows the iOS permission prompt if it was never shown; without, only
- * registers when permission is already there. Also clears Picket's delivered notifications.
+ * Register this phone for pushes (POST /devices), on launch and every return to the foreground so
+ * a rotated token reaches the server. With `ask`, shows the iOS permission prompt if it was never
+ * shown; without, only registers when permission is already there. Also clears Picket's delivered
+ * notifications, since the app is now in front.
  */
 export async function registerForPush(api: Api, { ask }: { ask: boolean }): Promise<PushState> {
   if (!supported) return { status: 'unsupported' };

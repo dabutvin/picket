@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 import urllib.parse
 from dataclasses import dataclass
@@ -133,6 +134,11 @@ def read_exif(path: str) -> dict[str, Any]:
             out["capturedAt"] = datetime.strptime(dto, "%Y:%m:%d %H:%M:%S").replace(microsecond=0).isoformat()
         except ValueError:
             pass
+    # The camera's UTC offset when the shot was taken (EXIF 2.31; the a7C II writes it, e.g. "+02:00").
+    # capturedAt stays camera-local; this lets the notifier tell live transfer from a later batch.
+    off = s("EXIF OffsetTimeOriginal") or s("EXIF OffsetTime")
+    if off and re.fullmatch(r"[+-]\d{2}:\d{2}", off):
+        out["capturedOffset"] = off
     if s("Image Model"):
         out["camera"] = s("Image Model")
     if s("EXIF LensModel"):
@@ -197,7 +203,7 @@ def process_object(bucket: str, key: str, uploaded_at: str, size: int | None) ->
     }
     if size is not None:
         item["bytes"] = size
-    for f in ("camera", "lens", "iso", "shutter", "aperture"):
+    for f in ("camera", "lens", "iso", "shutter", "aperture", "capturedOffset"):
         if exif.get(f):
             item[f] = exif[f]
 

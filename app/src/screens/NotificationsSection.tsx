@@ -12,8 +12,8 @@ interface Props {
 }
 
 /**
- * New-photo notifications: whether this phone gets them, and a test push. The server pushes once
- * when photos start syncing, then waits until the app has been opened (ADR-010).
+ * New-photo notifications: whether this phone gets them, and a test push. The server pushes when
+ * a batch starts syncing and when it is done; live transfer while shooting is left alone (ADR-010).
  */
 export function NotificationsSection({ api, push, onEnable }: Props) {
   const [testing, setTesting] = useState(false);
@@ -57,7 +57,7 @@ export function NotificationsSection({ api, push, onEnable }: Props) {
                     : 'Off'}
         </Text>
         <Text style={styles.help}>
-          {'Picket tells you once when photos start syncing from the camera. It won’t notify again until you’ve opened the app, so a big batch or a whole shoot is one notification. The app icon shows how many are waiting to review.'}
+          {'Picket tells you when a batch of photos starts syncing from the camera, and again when it’s done with how many came in. Photos sent while you’re still shooting (taken under 10 minutes before they sync) don’t notify. The app icon shows how many are waiting to review.'}
         </Text>
         {status === 'on' && push?.serverReady === false && (
           <Text style={[styles.help, { color: colors.reject }]}>The server has no APNs key yet, so nothing is sent until it is added and deployed.</Text>

@@ -96,8 +96,8 @@ export default function App() {
     [api, demo],
   );
   useEffect(() => enablePush(true), [enablePush]);
-  // Coming back to the app is "seen": clear Picket's notifications and tell the server, which
-  // re-arms the next "syncing" push (it sends one, then waits until the app has been opened).
+  // Coming back to the app: clear Picket's notifications (they've been seen) and re-register, so a
+  // rotated push token reaches the server.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') enablePush(false);
