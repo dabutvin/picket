@@ -5,7 +5,8 @@
  *   of being taken) is dropped; the rest start or extend the burst (the first photo pushes
  *   "syncing") and queue a delayed "is it quiet yet?" message per batch;
  * - that delay queue: the message whose photo is still the newest closes the burst and pushes "done";
- * - a weekly EventBridge schedule ({kind: "reminder"}): "N photos waiting to review", if any are.
+ * - an EventBridge Scheduler tick every 15 minutes ({kind: "reminder"}): about once a week, at a
+ *   random day and time, "N photos waiting to review" if any are (phones can turn it off).
  *
  * The logic lives in notifications.ts; this file only wires AWS clients.
  */
@@ -15,7 +16,7 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { env } from './config.js';
 import { createStore } from './store.js';
-import { QUIET_MS, backlogUploads, createApnsPush, createDynamoDeviceStore, loadApnsKey, onQuiet, onReminder, onUploads, type NotifierDeps, type PushFn } from './notifications.js';
+import { QUIET_MS, backlogUploads, createApnsPush, createDynamoDeviceStore, loadApnsKey, onQuiet, onReminderTick, onUploads, type NotifierDeps, type PushFn } from './notifications.js';
 import type { PhotoItem } from './types.js';
 
 /** The APNs key, re-read now and then so a key added by a later deploy is picked up by a warm container. */
@@ -44,17 +45,19 @@ export function insertedUploads(event: DynamoDBStreamEvent): string[] {
   return backlogUploads(rows);
 }
 
-/** The weekly schedule's payload (EventBridge Scheduler passes it as the event). */
+/** The reminder tick's payload (EventBridge Scheduler passes it as the event). */
 export interface ReminderEvent {
   kind: 'reminder';
 }
+
+const reminderTimeZone = () => process.env.REMINDER_TIME_ZONE || 'America/New_York';
 
 export function createNotifierHandler(deps: () => Promise<NotifierDeps>) {
   return async (event: DynamoDBStreamEvent | SQSEvent | ReminderEvent) => {
     const d = await deps();
     if ((event as ReminderEvent).kind === 'reminder') {
-      const out = await onReminder(d);
-      console.log('weekly reminder', JSON.stringify(out));
+      const out = await onReminderTick({ ...d, timeZone: reminderTimeZone() });
+      if (out.action !== 'wait') console.log('reminder', JSON.stringify(out));
       return;
     }
     event = event as DynamoDBStreamEvent | SQSEvent;

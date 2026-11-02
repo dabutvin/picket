@@ -155,6 +155,15 @@ await byId('notifications-card').scrollIntoViewIfNeeded();
 await byId('notifications-test').click();
 await page.getByText('Sent to this phone', { exact: false }).waitFor({ timeout: 5000 });
 await shot('09b-settings-notifications', 'Settings: new-photo notifications on, after sending a test (sample-photos mode)');
+// The weekly reminder is a per-phone switch: off, then back on (sample mode keeps it in memory).
+const reminders = page.getByRole('switch', { name: 'Weekly review reminder' });
+if (!(await reminders.isChecked())) throw new Error('the weekly reminder switch should start on');
+await reminders.click();
+await settle(500);
+if (await reminders.isChecked()) throw new Error('the weekly reminder switch did not turn off');
+await shot('09c-settings-reminder-off', 'Settings: weekly review reminder turned off for this phone');
+await reminders.click();
+await settle(300);
 await page.getByText('Picket API', { exact: true }).scrollIntoViewIfNeeded();
 await settle(600);
 await shot('10-settings-lower', 'Settings, scrolled: Lightroom and the Picket API');

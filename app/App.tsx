@@ -88,7 +88,25 @@ export default function App() {
   // New-photo notifications: ask once a server is paired (the prompt only ever shows once), then
   // re-register on every launch so a rotated token reaches the server. Sample photos simulate it.
   const [registered, setRegistered] = useState<PushState | null>(null);
-  const push: PushState | null = demo ? DEMO_PUSH : registered;
+  const [demoReminders, setDemoReminders] = useState(true);
+  const push: PushState | null = demo ? { ...DEMO_PUSH, reminders: demoReminders } : registered;
+  // The weekly reminder is a per-phone setting kept on the server; flip it optimistically.
+  const setReminders = useCallback(
+    (on: boolean) => {
+      if (demo) {
+        setDemoReminders(on);
+        return;
+      }
+      const token = registered?.token;
+      if (!api || !token) return;
+      setRegistered((p) => p && { ...p, reminders: on });
+      api.registerDevice(token, { reminders: on }).then(
+        (r) => setRegistered((p) => p && { ...p, reminders: r.reminders }),
+        () => setRegistered((p) => p && { ...p, reminders: !on }),
+      );
+    },
+    [api, demo, registered?.token],
+  );
   const enablePush = useCallback(
     (ask: boolean) => {
       if (api && !demo) void registerForPush(api, { ask }).then(setRegistered);
@@ -152,6 +170,7 @@ export default function App() {
               demo={demo}
               push={push}
               onEnablePush={() => enablePush(true)}
+              onReminders={setReminders}
               onDemo={(on) => {
                 setDemo(on);
                 setTab(on ? 'review' : 'settings');

@@ -334,13 +334,14 @@ export function createApp({ store, connections, lightroom, receiver, pairing, no
     return json(200, await receiver.power(body.action));
   }
 
-  /** A phone's APNs device token; registering again (every launch) just refreshes it. */
+  /** A phone's APNs device token; registering again (every launch) just refreshes it. `reminders` turns the weekly push on or off for this phone. */
   async function registerDevice(event: APIGatewayProxyEventV2): Promise<Result> {
     if (!notifications) return error(404, 'notifications are not set up on this stack');
-    const body = parseBody<{ token?: unknown; name?: unknown }>(event);
+    const body = parseBody<{ token?: unknown; name?: unknown; reminders?: unknown }>(event);
     if (!body || !isDeviceToken(body.token)) return error(400, 'token must be an APNs device token (hex)');
+    if (body.reminders !== undefined && typeof body.reminders !== 'boolean') return error(400, 'reminders must be true or false');
     const name = typeof body.name === 'string' ? body.name.slice(0, 80) : undefined;
-    return json(200, await notifications.register(body.token.toLowerCase(), name));
+    return json(200, await notifications.register(body.token.toLowerCase(), { name, reminders: body.reminders }));
   }
 
   async function unregisterDevice(event: APIGatewayProxyEventV2): Promise<Result> {

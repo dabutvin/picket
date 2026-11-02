@@ -47,20 +47,19 @@ const receiver = String(ctx('receiver', 'PICKET_RECEIVER') ?? 'true') !== 'false
 /** iOS bundle id (app/app.json expo.ios.bundleIdentifier): the topic of every push. */
 const bundleId = ctx('bundleId', 'PICKET_BUNDLE_ID') ?? 'com.danbut.picket';
 
-/** Weekly "photos waiting to review" push: -c reminderTimeZone=Europe/Berlin -c reminderDay=SAT -c reminderHour=9. */
-// `||`, not `??`: the deploy workflow passes unset repository variables as empty strings.
-const reminder = {
-  timeZone: ctx('reminderTimeZone', 'PICKET_REMINDER_TZ') || 'America/New_York',
-  weekDay: ctx('reminderDay', 'PICKET_REMINDER_DAY') || 'SUN',
-  hour: Number(ctx('reminderHour', 'PICKET_REMINDER_HOUR') || 18),
-};
+/**
+ * The weekly "photos waiting to review" push lands at a random time between 9:00 and 21:00 in this
+ * zone: -c reminderTimeZone=Europe/Berlin. `||`, not `??`: the deploy workflow passes an unset
+ * repository variable as an empty string.
+ */
+const reminderTimeZone = ctx('reminderTimeZone', 'PICKET_REMINDER_TZ') || 'America/New_York';
 
 new PicketStack(app, 'Picket', {
   lightroom,
   dns,
   receiver,
   bundleId,
-  reminder,
+  reminderTimeZone,
   // Region/account come from the CLI profile (`cdk deploy --profile ...`).
   // Pin them here if you want `cdk synth` to produce an environment-specific template.
   env: {

@@ -30,8 +30,8 @@ export interface PicketStackProps extends cdk.StackProps {
   receiver?: boolean;
   /** iOS bundle id, the APNs topic for new-photo notifications (default com.danbut.picket). */
   bundleId?: string;
-  /** Weekly "photos waiting to review" reminder (default Sunday 18:00 America/New_York). */
-  reminder?: { timeZone: string; weekDay: string; hour: number };
+  /** Time zone for the weekly "photos waiting to review" reminder's 9:00–21:00 window (default America/New_York). */
+  reminderTimeZone?: string;
 }
 
 /**
@@ -84,7 +84,7 @@ export class PicketStack extends cdk.Stack {
       bucket: storage.bucket,
       table: storage.table,
       bundleId: props.bundleId ?? 'com.danbut.picket',
-      reminder: props.reminder,
+      reminderTimeZone: props.reminderTimeZone,
     });
 
     const api = new Api(this, 'Api', {

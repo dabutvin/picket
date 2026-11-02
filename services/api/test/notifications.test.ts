@@ -19,10 +19,13 @@ import {
   isDeviceToken,
   onQuiet,
   onUploads,
-  onReminder,
+  REMINDER_WINDOW,
+  nextReminderAt,
+  onReminderTick,
   pushResult,
   reminderPayload,
   syncingPayload,
+  zonedTimeToUtc,
   type PushFn,
 } from '../src/notifications.js';
 import { createNotifierHandler, insertedUploads } from '../src/notifier.js';
@@ -148,28 +151,74 @@ describe('live transfer does not count', () => {
   });
 });
 
-describe('weekly reminder', () => {
-  it('reminds every phone of the Review backlog with the count and badge', async () => {
+describe('weekly reminder at a random day and time', () => {
+  const NY = 'America/New_York';
+  const fixed = (...vals: number[]) => {
+    let i = 0;
+    return () => vals[i++ % vals.length]!;
+  };
+
+  it('turns a wall-clock time in a zone into UTC, across daylight saving', () => {
+    expect(new Date(zonedTimeToUtc(2026, 11, 8, 9, 0, NY)).toISOString()).toBe('2026-11-08T14:00:00.000Z'); // EST
+    expect(new Date(zonedTimeToUtc(2026, 7, 8, 9, 0, NY)).toISOString()).toBe('2026-07-08T13:00:00.000Z'); // EDT
+    expect(new Date(zonedTimeToUtc(2026, 11, 8, 9, 0, 'Europe/Berlin')).toISOString()).toBe('2026-11-08T08:00:00.000Z');
+  });
+
+  it('picks 4 to 10 days later, between 9:00 and 21:00 local', () => {
+    const now = new Date('2026-11-02T03:00:00Z'); // Nov 1, 22:00 in New York
+    expect(nextReminderAt(now, NY, fixed(0, 0))).toBe('2026-11-05T14:00:00.000Z'); // Nov 5, 09:00 EST
+    expect(nextReminderAt(now, NY, fixed(0.9999, 0.9999))).toBe('2026-11-12T01:59:00.000Z'); // Nov 11, 20:59 EST
+    for (let i = 0; i < 200; i++) {
+      const t = Date.parse(nextReminderAt(now, NY));
+      const local = new Intl.DateTimeFormat('en-US', { timeZone: NY, hourCycle: 'h23', hour: 'numeric' }).format(new Date(t));
+      expect(Number(local)).toBeGreaterThanOrEqual(REMINDER_WINDOW.fromHour);
+      expect(Number(local)).toBeLessThan(REMINDER_WINDOW.toHour);
+      expect(t - now.getTime()).toBeGreaterThan(3 * 86400_000);
+      expect(t - now.getTime()).toBeLessThan(11 * 86400_000);
+    }
+  });
+
+  const tick = (devices: ReturnType<typeof createMemoryDeviceStore>, push: PushFn | null, now: number, store = fakeStore()) =>
+    onReminderTick({ store, devices, push, later: later(), timeZone: NY, rand: fixed(0.5, 0.5), now: () => new Date(now), log: quiet });
+
+  it('first run only schedules; before it is due nothing happens; when due it reminds and reschedules', async () => {
+    const devices = createMemoryDeviceStore([phone]);
     const push = okPush();
+    const first = await tick(devices, push, T0);
+    expect(first.action).toBe('scheduled');
+    const due = Date.parse(devices.reminderAt!);
+    expect(await tick(devices, push, due - 60_000)).toMatchObject({ action: 'wait' });
+    expect(push).not.toHaveBeenCalled();
     // fakeStore counts 5 unreviewed.
-    const out = await onReminder({ store: fakeStore(), devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet });
-    expect(out).toMatchObject({ sent: true, unreviewed: 5, delivered: 1 });
+    expect(await tick(devices, push, due + 60_000)).toMatchObject({ action: 'sent', unreviewed: 5, delivered: 1 });
     expect(push).toHaveBeenCalledWith([TOKEN_A], reminderPayload(5));
     expect(reminderPayload(5).aps).toMatchObject({ alert: { body: '5 photos waiting to review.' }, badge: 5 });
     expect(reminderPayload(1).aps.alert?.body).toBe('1 photo waiting to review.');
+    expect(Date.parse(devices.reminderAt!)).toBeGreaterThan(due + 3 * 86400_000);
+    // The next tick, a quarter hour later, does not send again.
+    expect(await tick(devices, push, due + 16 * 60_000)).toMatchObject({ action: 'wait' });
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
-  it('says nothing when Review is empty', async () => {
-    const store = fakeStore();
-    store.countByStatus = vi.fn(async () => 0);
+  it('skips phones that turned reminders off, and says nothing when Review is empty', async () => {
+    const devices = createMemoryDeviceStore([phone, { token: TOKEN_B, platform: 'ios', registeredAt: at(0), reminders: false }], undefined, at(0));
     const push = okPush();
-    expect(await onReminder({ store, devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet })).toEqual({ sent: false, unreviewed: 0 });
-    expect(push).not.toHaveBeenCalled();
+    await tick(devices, push, T0 + 1);
+    expect(push).toHaveBeenCalledWith([TOKEN_A], expect.anything());
+
+    const empty = fakeStore();
+    empty.countByStatus = vi.fn(async () => 0);
+    const quietDevices = createMemoryDeviceStore([phone], undefined, at(0));
+    const push2 = okPush();
+    expect(await tick(quietDevices, push2, T0 + 1, empty)).toMatchObject({ action: 'skipped', unreviewed: 0 });
+    expect(push2).not.toHaveBeenCalled();
+    expect(quietDevices.reminderAt).not.toBe(at(0)); // still moves on to next week
   });
 
-  it('the handler routes the schedule event to it', async () => {
+  it('the handler routes the schedule tick to it', async () => {
     const push = okPush();
-    const handle = createNotifierHandler(async () => ({ store: fakeStore(), devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet }));
+    const devices = createMemoryDeviceStore([phone], undefined, at(-60_000));
+    const handle = createNotifierHandler(async () => ({ store: fakeStore(), devices, push, later: later(), log: quiet }));
     await handle({ kind: 'reminder' });
     expect(push.mock.calls[0]![1].kind).toBe('reminder');
   });
@@ -270,11 +319,20 @@ describe('device routes', () => {
     const { devices, app } = setup(false);
     const r = await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A.toUpperCase(), name: 'iPhone' }) }));
     expect(r.statusCode).toBe(200);
-    expect(body(r)).toEqual({ configured: false, devices: 1 });
+    expect(body(r)).toEqual({ configured: false, devices: 1, reminders: true });
     expect(devices.devices[0]).toMatchObject({ token: TOKEN_A, name: 'iPhone', platform: 'ios' });
     // Registering again is a refresh, not a second device.
     await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A }) }));
     expect(devices.devices).toHaveLength(1);
+  });
+
+  it('turns the weekly reminder off and on for one phone, and a plain launch keeps the choice', async () => {
+    const { devices, app } = setup();
+    expect(body(await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A, reminders: false }) }))).reminders).toBe(false);
+    expect(body(await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A }) }))).reminders).toBe(false);
+    expect(devices.devices[0]!.reminders).toBe(false);
+    expect(body(await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A, reminders: true }) }))).reminders).toBe(true);
+    expect((await app(ev('POST /devices', { body: JSON.stringify({ token: TOKEN_A, reminders: 'no' }) }))).statusCode).toBe(400);
   });
 
   it('rejects anything that is not a device token', async () => {
@@ -314,6 +372,27 @@ describe('DynamoDB burst row', () => {
     } as unknown as DynamoDBDocumentClient;
     return { ddb, inputs };
   };
+
+  it('registering updates in place and only touches reminders when asked', async () => {
+    const { ddb, inputs } = fake(() => ({ Attributes: { platform: 'ios', registeredAt: at(0), reminders: false } }));
+    const store = createDynamoDeviceStore('n', ddb);
+    expect(await store.register(TOKEN_A, {}, at(0))).toMatchObject({ reminders: false });
+    expect(inputs[0]).toMatchObject({ UpdateExpression: 'SET #t = :t, platform = :p, registeredAt = :now', ReturnValues: 'ALL_NEW' });
+    await store.register(TOKEN_A, { name: 'iPhone', reminders: true }, at(0));
+    expect(inputs[1]!.UpdateExpression).toBe('SET #t = :t, platform = :p, registeredAt = :now, #n = :n, reminders = :r');
+  });
+
+  it('only one run can move the reminder on', async () => {
+    const { ddb, inputs } = fake(() => ({}));
+    expect(await createDynamoDeviceStore('n', ddb).advanceReminder(at(0), at(7 * 86400_000))).toBe(true);
+    expect(inputs[0]).toMatchObject({ ConditionExpression: 'nextAt = :cur', ExpressionAttributeValues: { ':next': at(7 * 86400_000), ':cur': at(0) } });
+    await createDynamoDeviceStore('n', ddb).advanceReminder(undefined, at(0));
+    expect(inputs[1]!.ConditionExpression).toBe('attribute_not_exists(nextAt)');
+    const lost = fake(() => {
+      throw Object.assign(new Error('nope'), { name: 'ConditionalCheckFailedException' });
+    });
+    expect(await createDynamoDeviceStore('n', lost.ddb).advanceReminder(at(0), at(1))).toBe(false);
+  });
 
   it('adds to the burst in one atomic write and starts it only when there was none', async () => {
     const { ddb, inputs } = fake(() => ({ Attributes: undefined }));

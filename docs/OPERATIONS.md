@@ -25,7 +25,7 @@ them, rotates the password and starts or stops the receiver.
 | `NETLIFY_AUTH_TOKEN` | secret | Netlify → User settings → Applications → Personal access tokens. Lets `deploy` and `ops → dns` manage the DNS records for the domain. Without it the summary lists the records to add by hand. |
 | `AWS_REGION` | variable, optional | Defaults to `us-east-1`. |
 | `DOMAIN_NAME` | variable, optional | Defaults to `picket.photos`. |
-| `REMINDER_TIME_ZONE`, `REMINDER_DAY`, `REMINDER_HOUR` | variables, optional | When the weekly "photos waiting to review" push goes out. Default `America/New_York`, `SUN`, `18`. |
+| `REMINDER_TIME_ZONE` | variable, optional | IANA zone whose 9:00–21:00 the weekly "photos waiting to review" push lands in (random day and time). Default `America/New_York`. |
 
 ### In the app (Camera tab)
 
@@ -174,9 +174,10 @@ Known limits:
 
 Picket pushes "Photos are syncing" when a batch starts arriving and "Done: N new photos synced"
 3 minutes after its last photo. Live transfer while shooting (photos synced within 10 minutes of
-being taken) doesn't notify. Every Sunday at 18:00 New York time it reminds you if anything is
-still waiting in Review; change that with the `REMINDER_TIME_ZONE` / `REMINDER_DAY` /
-`REMINDER_HOUR` repository variables (ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
+being taken) doesn't notify. About once a week, on a random day between 9:00 and 21:00 New York
+time, it reminds you if anything is still waiting in Review; each phone can turn that off in
+Settings → Notifications, and the `REMINDER_TIME_ZONE` repository variable moves the window
+(ADR-010). The push goes straight to Apple, which needs an APNs auth key; Apple's API can't
 create one, so this is done once in a browser (a phone works):
 
 1. developer.apple.com → Account → Certificates, Identifiers & Profiles → **Keys** → **+**.

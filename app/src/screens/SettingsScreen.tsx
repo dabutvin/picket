@@ -20,12 +20,13 @@ interface Props {
   /** New-photo notifications for this phone (null while checking). */
   push: PushState | null;
   onEnablePush: () => void;
+  onReminders: (on: boolean) => void;
   onSaved: (s: Settings | null) => void;
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
-export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush, onSaved }: Props) {
+export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush, onReminders, onSaved }: Props) {
   const [apiUrl, setApiUrl] = useState(initial?.apiUrl ?? '');
   const [code, setCode] = useState('');
   const [testing, setTesting] = useState(false);
@@ -109,7 +110,7 @@ export function SettingsScreen({ initial, api, demo, onDemo, push, onEnablePush,
 
       {api && <CameraSection api={api} />}
 
-      {api && <NotificationsSection api={api} push={push} onEnable={onEnablePush} />}
+      {api && <NotificationsSection api={api} push={push} onEnable={onEnablePush} onReminders={onReminders} />}
 
       {api && (
         <>

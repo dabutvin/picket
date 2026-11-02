@@ -19,7 +19,7 @@
 import { connect, constants, type ClientHttp2Session } from 'node:http2';
 import { createPrivateKey, sign } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { Store } from './store.js';
 import type { PhotoItem } from './types.js';
@@ -32,6 +32,8 @@ export interface Device {
   /** Shown nowhere yet; handy when reading the table. */
   name?: string;
   registeredAt: string;
+  /** The weekly "photos waiting to review" push, per phone (Settings → Notifications). Absent = on. */
+  reminders?: boolean;
 }
 
 /** Photos arriving right now. Absent between bursts. */
@@ -44,8 +46,13 @@ export interface Burst {
 
 export interface DeviceStore {
   list(): Promise<Device[]>;
-  put(device: Device): Promise<void>;
+  /** Register or refresh a phone; `reminders` changes only when given, so a launch never resets it. Returns the stored row. */
+  register(token: string, opts: { name?: string; reminders?: boolean }, now: string): Promise<Device>;
   remove(token: string): Promise<void>;
+  /** When the next weekly reminder is due (undefined before the first run). */
+  getReminderAt(): Promise<string | undefined>;
+  /** Move the reminder from `current` to `next`; false if another run already moved it. */
+  advanceReminder(current: string | undefined, next: string): Promise<boolean>;
   /** Add `count` photos, the newest uploaded at `lastUploadAt`. `started` is true for exactly one caller per burst. */
   noteUploads(count: number, lastUploadAt: string, now: string): Promise<{ started: boolean }>;
   getBurst(): Promise<Burst | undefined>;
@@ -55,6 +62,7 @@ export interface DeviceStore {
 
 const DEVICE = 'device#';
 const BURST = { pk: 'burst', sk: 'burst' };
+const REMINDER_KEY = { pk: 'reminder', sk: 'reminder' };
 
 const isConditionFailure = (err: unknown) => (err as { name?: string }).name === 'ConditionalCheckFailedException';
 
@@ -65,10 +73,54 @@ export function createDynamoDeviceStore(tableName: string, ddb = DynamoDBDocumen
       const res = await ddb.send(
         new QueryCommand({ TableName: tableName, KeyConditionExpression: 'pk = :pk', ExpressionAttributeValues: { ':pk': 'devices' } }),
       );
-      return (res.Items ?? []).map(({ token, platform, name, registeredAt }) => ({ token, platform, name, registeredAt }) as Device);
+      return (res.Items ?? []).map(({ token, platform, name, registeredAt, reminders }) => ({ token, platform, name, registeredAt, reminders }) as Device);
     },
-    async put(device) {
-      await ddb.send(new PutCommand({ TableName: tableName, Item: { pk: 'devices', sk: `${DEVICE}${device.token}`, ...device } }));
+    async register(token, { name, reminders }, now) {
+      const sets = ['#t = :t', 'platform = :p', 'registeredAt = :now'];
+      const names: Record<string, string> = { '#t': 'token' };
+      const values: Record<string, unknown> = { ':t': token, ':p': 'ios', ':now': now };
+      if (name) {
+        sets.push('#n = :n');
+        names['#n'] = 'name';
+        values[':n'] = name;
+      }
+      if (reminders !== undefined) {
+        sets.push('reminders = :r');
+        values[':r'] = reminders;
+      }
+      const res = await ddb.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: 'devices', sk: `${DEVICE}${token}` },
+          UpdateExpression: `SET ${sets.join(', ')}`,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: 'ALL_NEW',
+        }),
+      );
+      const { platform, registeredAt, reminders: r, name: n } = (res.Attributes ?? {}) as Partial<Device>;
+      return { token, platform: platform ?? 'ios', registeredAt: registeredAt ?? now, name: n, reminders: r };
+    },
+    async getReminderAt() {
+      const res = await ddb.send(new GetCommand({ TableName: tableName, Key: REMINDER_KEY }));
+      return (res.Item as { nextAt?: string } | undefined)?.nextAt;
+    },
+    async advanceReminder(current, next) {
+      try {
+        await ddb.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: REMINDER_KEY,
+            UpdateExpression: 'SET nextAt = :next',
+            ConditionExpression: current === undefined ? 'attribute_not_exists(nextAt)' : 'nextAt = :cur',
+            ExpressionAttributeValues: { ':next': next, ...(current === undefined ? {} : { ':cur': current }) },
+          }),
+        );
+        return true;
+      } catch (err) {
+        if (isConditionFailure(err)) return false;
+        throw err;
+      }
     },
     async remove(token) {
       await ddb.send(new DeleteCommand({ TableName: tableName, Key: { pk: 'devices', sk: `${DEVICE}${token}` } }));
@@ -112,8 +164,12 @@ export function createDynamoDeviceStore(tableName: string, ddb = DynamoDBDocumen
   };
 }
 
-export function createMemoryDeviceStore(devices: Device[] = [], burst?: Burst): DeviceStore & { devices: Device[]; burst: Burst | undefined } {
-  const s: { devices: Device[]; burst: Burst | undefined } = { devices: [...devices], burst: burst && { ...burst } };
+export function createMemoryDeviceStore(
+  devices: Device[] = [],
+  burst?: Burst,
+  reminderAt?: string,
+): DeviceStore & { devices: Device[]; burst: Burst | undefined; reminderAt: string | undefined } {
+  const s: { devices: Device[]; burst: Burst | undefined; reminderAt: string | undefined } = { devices: [...devices], burst: burst && { ...burst }, reminderAt };
   return {
     get devices() {
       return s.devices;
@@ -121,9 +177,21 @@ export function createMemoryDeviceStore(devices: Device[] = [], burst?: Burst): 
     get burst() {
       return s.burst;
     },
+    get reminderAt() {
+      return s.reminderAt;
+    },
     list: async () => [...s.devices],
-    put: async (d) => {
-      s.devices = [...s.devices.filter((x) => x.token !== d.token), d];
+    register: async (token, { name, reminders }, now) => {
+      const old = s.devices.find((x) => x.token === token);
+      const d: Device = { ...old, token, platform: 'ios', registeredAt: now, name: name ?? old?.name, reminders: reminders ?? old?.reminders };
+      s.devices = [...s.devices.filter((x) => x.token !== token), d];
+      return { ...d };
+    },
+    getReminderAt: async () => s.reminderAt,
+    advanceReminder: async (current, next) => {
+      if (s.reminderAt !== current) return false;
+      s.reminderAt = next;
+      return true;
     },
     remove: async (token) => {
       s.devices = s.devices.filter((x) => x.token !== token);
@@ -322,8 +390,8 @@ export interface NotifierDeps {
 }
 
 /** Prune tokens Apple says are dead; report how many pushes landed. */
-async function deliver(devices: DeviceStore, push: PushFn, payload: ApnsPayload, log: NonNullable<NotifierDeps['log']>) {
-  const tokens = (await devices.list()).map((d) => d.token);
+async function deliver(devices: DeviceStore, push: PushFn, payload: ApnsPayload, log: NonNullable<NotifierDeps['log']>, only?: string[]) {
+  const tokens = only ?? (await devices.list()).map((d) => d.token);
   const results = await push(tokens, payload);
   let removed = 0;
   for (const r of results) {
@@ -386,17 +454,73 @@ export function reminderPayload(unreviewed: number): ApnsPayload {
   };
 }
 
-/** Weekly (EventBridge Scheduler): remind every phone of the Review backlog, if there is one. */
-export async function onReminder({ store, devices, push, log = console.log }: NotifierDeps) {
+/**
+ * About once a week, at a different day and time each time: the next reminder is 4 to 10 days
+ * after the last, at a random minute between 9:00 and 21:00 in the user's time zone.
+ */
+export const REMINDER_WINDOW = { minDays: 4, maxDays: 10, fromHour: 9, toHour: 21 };
+
+/** Wall-clock parts of `t` in `timeZone`. */
+function zonedParts(t: number, timeZone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+      .formatToParts(new Date(t))
+      .filter((p) => p.type !== 'literal')
+      .map((p) => [p.type, Number(p.value)]),
+  ) as { year: number; month: number; day: number; hour: number; minute: number };
+  return parts;
+}
+
+/** The UTC instant of a wall-clock time in `timeZone` (DST-aware). */
+export function zonedTimeToUtc(year: number, month: number, day: number, hour: number, minute: number, timeZone: string): number {
+  const wall = Date.UTC(year, month - 1, day, hour, minute);
+  const offsetAt = (t: number) => {
+    const p = zonedParts(t, timeZone);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(t / 60_000) * 60_000;
+  };
+  let t = wall - offsetAt(wall);
+  t = wall - offsetAt(t); // second pass settles the hour around a DST change
+  return t;
+}
+
+/** A random instant REMINDER_WINDOW after `now`, in waking hours of `timeZone`. */
+export function nextReminderAt(now: Date, timeZone: string, rand: () => number = Math.random): string {
+  const { minDays, maxDays, fromHour, toHour } = REMINDER_WINDOW;
+  const today = zonedParts(now.getTime(), timeZone);
+  const days = minDays + Math.floor(rand() * (maxDays - minDays + 1));
+  const minuteOfDay = fromHour * 60 + Math.floor(rand() * (toHour - fromHour) * 60);
+  const d = new Date(Date.UTC(today.year, today.month - 1, today.day + days));
+  return new Date(zonedTimeToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), Math.floor(minuteOfDay / 60), minuteOfDay % 60, timeZone)).toISOString();
+}
+
+export interface ReminderDeps extends NotifierDeps {
+  timeZone: string;
+  rand?: () => number;
+}
+
+/**
+ * Runs every 15 minutes. When the reminder is due: pick the next one, then (if Review isn't empty
+ * and the APNs key is set) remind every phone that hasn't turned reminders off. The first run only
+ * schedules one.
+ */
+export async function onReminderTick({ store, devices, push, timeZone, rand, now = () => new Date(), log = console.log }: ReminderDeps) {
+  const at = now();
+  const due = await devices.getReminderAt();
+  if (due && Date.parse(due) > at.getTime()) return { action: 'wait' as const, due };
+  const next = nextReminderAt(at, timeZone, rand);
+  // Move it first, conditionally: a failed push waits for the next one rather than repeating.
+  if (!(await devices.advanceReminder(due, next))) return { action: 'wait' as const, due };
+  if (!due) return { action: 'scheduled' as const, next };
   const unreviewed = await store.countByStatus('unreviewed');
-  if (unreviewed === 0 || !push) return { sent: false as const, unreviewed };
-  return { sent: true as const, unreviewed, ...(await deliver(devices, push, reminderPayload(unreviewed), log)) };
+  const tokens = (await devices.list()).filter((d) => d.reminders !== false).map((d) => d.token);
+  if (unreviewed === 0 || !push || tokens.length === 0) return { action: 'skipped' as const, next, unreviewed, phones: tokens.length };
+  return { action: 'sent' as const, next, unreviewed, ...(await deliver(devices, push, reminderPayload(unreviewed), log, tokens)) };
 }
 
 /** What the API's routes need: register a phone, forget one, send a test push. */
 export interface NotificationService {
   configured(): Promise<boolean>;
-  register(token: string, name?: string): Promise<{ configured: boolean; devices: number }>;
+  register(token: string, opts?: { name?: string; reminders?: boolean }): Promise<{ configured: boolean; devices: number; reminders: boolean }>;
   unregister(token: string): Promise<void>;
   test(): Promise<{ configured: boolean; attempted: number; delivered: number; removed: number }>;
 }
@@ -406,9 +530,9 @@ export function createNotificationService(devices: DeviceStore, push: () => Prom
     async configured() {
       return (await push()) !== null;
     },
-    async register(token, name) {
-      await devices.put({ token, platform: 'ios', name, registeredAt: new Date().toISOString() });
-      return { configured: (await push()) !== null, devices: (await devices.list()).length };
+    async register(token, opts = {}) {
+      const d = await devices.register(token, opts, new Date().toISOString());
+      return { configured: (await push()) !== null, devices: (await devices.list()).length, reminders: d.reminders !== false };
     },
     unregister: (token) => devices.remove(token),
     async test() {

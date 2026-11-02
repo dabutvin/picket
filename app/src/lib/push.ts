@@ -19,6 +19,10 @@ export interface PushState {
   status: PushStatus;
   /** The server has an APNs key; without it registration works but nothing is sent. */
   serverReady?: boolean;
+  /** This phone gets the weekly "photos waiting to review" reminder (a per-phone setting on the server). */
+  reminders?: boolean;
+  /** This phone's APNs token, for changing its settings. */
+  token?: string;
   error?: string;
 }
 
@@ -50,9 +54,9 @@ export async function registerForPush(api: Api, { ask }: { ask: boolean }): Prom
   }
   if (!allowed(perm)) return { status: perm.canAskAgain ? 'undetermined' : 'denied' };
   try {
-    const token = await Notifications.getDevicePushTokenAsync();
-    const res = await api.registerDevice(String(token.data));
-    return { status: 'on', serverReady: res.configured };
+    const token = String((await Notifications.getDevicePushTokenAsync()).data);
+    const res = await api.registerDevice(token);
+    return { status: 'on', serverReady: res.configured, reminders: res.reminders, token };
   } catch (e) {
     return { status: 'error', error: e instanceof Error ? e.message : String(e) };
   }

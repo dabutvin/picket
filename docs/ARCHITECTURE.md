@@ -77,8 +77,9 @@ EXIF capture time plus the camera's UTC offset, `capturedOffset`). The first cou
 batch pushes "Photos are syncing from the camera…" to every phone registered in the `Notify`
 table; each batch also queues an SQS message delayed 3 minutes, and the one for the newest photo
 closes the batch with "Done: N new photos synced. M to review." (badge = unreviewed count).
-Every Sunday at 18:00 (America/New_York) a schedule invokes it once more: if Review isn't empty
-it pushes "N photos waiting to review." Pushes go straight to Apple's APNs with the team's auth
+About once a week, at a random day and time between 9:00 and 21:00 local (a 15-minute tick checks
+the stored due time), it pushes "N photos waiting to review." if Review isn't empty, to every
+phone that hasn't turned the reminder off in Settings. Pushes go straight to Apple's APNs with the team's auth
 key. The app registers its APNs device token with `POST /devices` on launch. See ADR-010.
 
 ### 3. Review (first triage) and Picks (the send step)

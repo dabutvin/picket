@@ -18,8 +18,8 @@ export interface NotificationsProps {
   table: dynamodb.Table;
   /** The iOS bundle id: the APNs topic every push is addressed to. */
   bundleId: string;
-  /** When the weekly "photos waiting to review" reminder goes out. */
-  reminder?: { timeZone: string; weekDay: string; hour: number };
+  /** The user's time zone: the weekly reminder lands between 9:00 and 21:00 there. */
+  reminderTimeZone?: string;
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -79,6 +79,7 @@ export class Notifications extends Construct {
         APNS_SECRET_ARN: this.apnsKey.secretArn,
         APNS_TOPIC: props.bundleId,
         QUIET_QUEUE_URL: this.quietQueue.queueUrl,
+        REMINDER_TIME_ZONE: props.reminderTimeZone ?? 'America/New_York',
       },
       logGroup: new logs.LogGroup(this, 'NotifierLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: cdk.RemovalPolicy.DESTROY }),
       description: 'Picket: push "syncing" on the first new photo and "done" once uploads go quiet',
@@ -101,13 +102,12 @@ export class Notifications extends Construct {
     );
     this.notifier.addEventSource(new SqsEventSource(this.quietQueue, { batchSize: 10 }));
 
-    // Weekly nudge about the Review backlog (sent only if something is waiting). Local time, so it
-    // stays put across daylight saving.
-    const r = props.reminder ?? { timeZone: 'America/New_York', weekDay: 'SUN', hour: 18 };
-    new scheduler.Schedule(this, 'WeeklyReminder', {
-      schedule: scheduler.ScheduleExpression.cron({ weekDay: r.weekDay, hour: String(r.hour), minute: '0', timeZone: cdk.TimeZone.of(r.timeZone) }),
-      target: new schedulerTargets.LambdaInvoke(this.notifier, { input: scheduler.ScheduleTargetInput.fromObject({ kind: 'reminder' }), retryAttempts: 2 }),
-      description: 'Picket: weekly "photos waiting to review" push',
+    // The weekly "photos waiting to review" nudge lands on a random day and time (4–10 days apart,
+    // 9:00–21:00 local); the notifier keeps the next due time and this tick sends it when it comes.
+    new scheduler.Schedule(this, 'ReminderTick', {
+      schedule: scheduler.ScheduleExpression.rate(cdk.Duration.minutes(15)),
+      target: new schedulerTargets.LambdaInvoke(this.notifier, { input: scheduler.ScheduleTargetInput.fromObject({ kind: 'reminder' }), retryAttempts: 0 }),
+      description: 'Picket: send the weekly review reminder when it comes due',
     });
   }
 }

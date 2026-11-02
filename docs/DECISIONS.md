@@ -260,10 +260,15 @@ push service would need an APNs key uploaded to EAS anyway.
   photo can, 3 minutes after it, and it pushes **"Done: N new photos synced. M to review."** with
   the badge set to all unreviewed. A burst left open by a lost message is closed silently by the
   next upload once it is twice the quiet time old.
-- **Weekly reminder.** An EventBridge Scheduler schedule (Sunday 18:00 America/New_York, the
-  camera's zone; `-c reminderTimeZone / reminderDay / reminderHour` to change) invokes the
-  notifier with `{kind: "reminder"}`; if anything is unreviewed it pushes **"N photos waiting to
-  review."** with the badge, otherwise nothing.
+- **Weekly reminder, at a different time each week.** The `Notify` table keeps the next due time
+  (`reminder` row). Each reminder picks the next one 4 to 10 days later at a random minute
+  between 9:00 and 21:00 in `REMINDER_TIME_ZONE` (default America/New_York, the camera's zone),
+  so it averages once a week without becoming a fixture. An EventBridge Scheduler tick every 15
+  minutes invokes the notifier with `{kind: "reminder"}`; when the time has come it moves it on
+  (conditionally, so it fires once) and, if anything is unreviewed, pushes **"N photos waiting
+  to review."** with the badge to every phone that hasn't turned it off. Each phone row has a
+  `reminders` flag set from Settings → Notifications → *Weekly review reminder*
+  (`POST /devices {token, reminders}`); a plain launch never changes it.
 - Phones register their raw APNs device token (`getDevicePushTokenAsync`) with `POST /devices`
   on launch and on every return to the foreground (which also clears Picket's notifications).
   Pushes go from the Lambda to `api.push.apple.com` over HTTP/2 with a token-based APNs key
