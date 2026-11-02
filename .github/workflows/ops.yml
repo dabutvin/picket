@@ -9,7 +9,7 @@ on:
         description: Action
         type: choice
         default: status
-        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, migrate-photo-ids, destroy]
+        options: [status, pairing-code, dns, receiver-start, receiver-stop, receiver-logs, sync-history, reload-ftp-password, redrive-dlq, uploader-errors, lightroom-debug, migrate-photo-ids, destroy]
       confirm:
         description: Type "destroy" to confirm the destroy action, or "migrate" to apply migrate-photo-ids (otherwise a dry run)
         required: false
@@ -171,6 +171,18 @@ jobs:
           echo "--- stderr ---"; aws ssm get-command-invocation --command-id "$cmd" --instance-id "$IID" --query StandardErrorContent --output text
           { echo "## Receiver health report (\`$IID\`, SSM $st)"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           [ "$st" = "Success" ]
+
+      # Read-only: when photos arrived, gaps between them, and how bursts would split at different
+      # quiet times (tunes QUIET_MS for new-photo notifications, ADR-010). Printed to the job log too,
+      # since step summaries can't be read through the API.
+      - name: Sync history
+        if: inputs.action == 'sync-history'
+        env:
+          TABLE: ${{ steps.outs.outputs.Table }}
+        run: |
+          set -euo pipefail
+          aws dynamodb scan --table-name "$TABLE" --projection-expression "uploadedAt, capturedAt" --output json > scan.json
+          python3 infra/scripts/sync-history.py < scan.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Reload the camera password on the receiver
         if: inputs.action == 'reload-ftp-password'

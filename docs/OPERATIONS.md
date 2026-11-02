@@ -69,6 +69,7 @@ couple of minutes. Running it when nothing changed is harmless.
 | `status` | receiver state, photo counts per status, Lightroom counts per status, queue and dead-letter depth |
 | `pairing-code` | a fresh one-time code for the app's Settings screen |
 | `receiver-logs` | health report from the instance over Session Manager: cloud-init result, pure-ftpd state and log, certificate in use, Picket log lines. First stop when the camera can't connect. |
+| `sync-history` | read-only: when photos arrived from the camera, the gaps between them, and how many bursts each quiet time would make (overall, per day, the latest 40). For tuning `QUIET_MS` of the new-photo notifications. |
 | `lightroom-debug` | the pick → Lightroom pipeline in one log: queue depths, every photo by Lightroom status, router and uploader CloudWatch events, a peek at the dead-letter queue. First stop when a pick sticks on Queued or Failed. |
 | `migrate-photo-ids` | one-off: moves rows from the legacy photo id (hash of the S3 key, which carried the upload date) to the current one (file name + capture time). Dry run unless the confirm box says `migrate`. Needed once after #23; harmless to re-run. |
 | `dns` | re-sync the `ftp` and `api` records on Netlify and list the zone |
