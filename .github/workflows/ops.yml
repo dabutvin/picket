@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs' || inputs.action == 'migrate-photo-ids'
+        if: inputs.action == 'destroy' || inputs.action == 'dns' || inputs.action == 'pairing-code' || inputs.action == 'receiver-logs' || inputs.action == 'migrate-photo-ids' || inputs.action == 'sync-history'
       - uses: actions/setup-node@v4
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
