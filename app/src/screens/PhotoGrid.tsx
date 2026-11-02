@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import type { Api } from '../lib/api';
 import type { Photo, PhotoStatus } from '../lib/types';
-import { colors } from '../lib/theme';
+import { colors, tint } from '../lib/theme';
 import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
@@ -253,7 +254,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
           cachePolicy="memory-disk"
           recyclingKey={item.photoId} contentFit="cover" style={[styles.thumb, isPicked && styles.thumbPicked]} />
         {cellBadges && <LightroomBadge info={item.lightroom} compact />}
-        {selecting && <View style={[styles.check, isPicked && styles.checkOn]}>{isPicked && <Text style={styles.checkMark}>✓</Text>}</View>}
+        {selecting && <View style={[styles.check, isPicked && styles.checkOn]}>{isPicked && <Ionicons name="checkmark" size={14} color={colors.onFill} />}</View>}
       </Pressable>
     );
   };
@@ -264,7 +265,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     return (
       <View style={styles.day}>
         <Pressable onPress={() => toggleCollapsed(row.day)} hitSlop={6} style={styles.dayToggle} testID={`day-${row.day}`}>
-          <Text style={styles.chevron}>{row.collapsed ? '▸' : '▾'}</Text>
+          <Ionicons name={row.collapsed ? 'chevron-forward' : 'chevron-down'} size={16} color={colors.muted} style={styles.chevron} />
           <Text style={styles.dayLabel}>{row.label}</Text>
           <Text style={styles.dayCount}>
             {row.photos.length}
@@ -273,7 +274,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         </Pressable>
         {selecting && (
           <Pressable onPress={() => toggleDay(row.photos)} hitSlop={8} testID={`day-select-${row.day}`}>
-            <View style={[styles.check, styles.dayCheck, allPicked && styles.checkOn]}>{allPicked && <Text style={styles.checkMark}>✓</Text>}</View>
+            <View style={[styles.check, styles.dayCheck, allPicked && styles.checkOn]}>{allPicked && <Ionicons name="checkmark" size={14} color={colors.onFill} />}</View>
           </Pressable>
         )}
       </View>
@@ -291,8 +292,15 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
         </View>
         <View style={styles.headerActions}>
           {days.length > 1 && (
-            <Pressable onPress={() => setAllCollapsed(anyOpen)} hitSlop={8} testID="grid-collapse-all">
-              <Text style={styles.headerAction}>{anyOpen ? 'Collapse all' : 'Expand all'}</Text>
+            <Pressable
+              onPress={() => setAllCollapsed(anyOpen)}
+              hitSlop={8}
+              style={({ pressed }) => [styles.iconAction, pressed && { opacity: 0.6 }]}
+              accessibilityRole="button"
+              accessibilityLabel={anyOpen ? 'Collapse all days' : 'Expand all days'}
+              testID="grid-collapse-all"
+            >
+              <Ionicons name={anyOpen ? 'chevron-collapse' : 'chevron-expand'} size={18} color={colors.text} />
             </Pressable>
           )}
           {renderBar && items.length > 0 && (
@@ -392,12 +400,13 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 24, fontWeight: '800' },
   subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  headerActions: { flexDirection: 'row', gap: 18 },
+  headerActions: { flexDirection: 'row', gap: 14, alignItems: 'center' },
+  iconAction: { width: 32, height: 32, borderRadius: 16, backgroundColor: tint(colors.muted, 0.22), alignItems: 'center', justifyContent: 'center' },
   headerAction: { color: colors.accent, fontWeight: '600', paddingBottom: 4 },
   list: { flexGrow: 1, paddingBottom: 8 },
   day: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, paddingBottom: 8 },
-  dayToggle: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flex: 1 },
-  chevron: { color: colors.muted, fontSize: 12, width: 12 },
+  dayToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  chevron: { width: 16 },
   dayLabel: { color: colors.text, fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
   dayCount: { color: colors.muted, fontSize: 12 },
   dayCheck: { position: 'relative', top: 0, right: 0 },
@@ -418,7 +427,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  checkMark: { color: '#fff', fontSize: 13, fontWeight: '800', lineHeight: 15 },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 40, paddingHorizontal: 24, lineHeight: 20 },
   bar: { gap: 10 },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, backgroundColor: colors.bg, padding: 16, gap: 12 },
