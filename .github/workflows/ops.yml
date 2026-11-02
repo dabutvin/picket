@@ -37,7 +37,7 @@ jobs:
         if: inputs.action == 'destroy'
         with: { node-version: 22 }
       - uses: actions/setup-python@v5
-        if: inputs.action == 'destroy' || inputs.action == 'migrate-photo-ids'
+        if: inputs.action == 'destroy' || inputs.action == 'migrate-photo-ids' || inputs.action == 'sync-history'
         with: { python-version: "3.12" }
 
       - name: Pick credential mode
@@ -179,10 +179,17 @@ jobs:
         if: inputs.action == 'sync-history'
         env:
           TABLE: ${{ steps.outs.outputs.Table }}
+          BUCKET: ${{ steps.outs.outputs.Bucket }}
         run: |
           set -euo pipefail
           aws dynamodb scan --table-name "$TABLE" --projection-expression "uploadedAt, capturedAt" --output json > scan.json
           python3 infra/scripts/sync-history.py < scan.json | tee -a "$GITHUB_STEP_SUMMARY"
+          # The camera's time-zone tags on the newest RAW (first 1 MB is enough for the EXIF block).
+          pip install --quiet exifread==3.0.0
+          key=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix raw/ --query 'sort_by(Contents, &LastModified)[-1].Key' --output text)
+          aws s3api get-object --bucket "$BUCKET" --key "$key" --range bytes=0-1048575 head.arw > /dev/null
+          echo "## EXIF time tags on \`$key\`" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import exifread,sys; t=exifread.process_file(open('head.arw','rb'), details=False); [print(f'- {k}: {v}') for k,v in sorted(t.items()) if 'Time' in k or 'Date' in k or 'Offset' in k]" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Reload the camera password on the receiver
         if: inputs.action == 'reload-ftp-password'
