@@ -314,6 +314,18 @@ export function pushResult(token: string, status: number, text: string): PushRes
   return { token, ok: false, status, reason, gone };
 }
 
+/** The APNs key, re-read now and then so a key added by a later deploy is picked up by a warm container. */
+export function cachedPush(secretId: string | undefined, topic: string, ttlMs = 5 * 60_000): () => Promise<PushFn | null> {
+  let cached: { at: number; push: PushFn | null } | undefined;
+  return async () => {
+    if (!secretId) return null;
+    if (cached && Date.now() - cached.at < ttlMs) return cached.push;
+    const key = await loadApnsKey(secretId);
+    cached = { at: Date.now(), push: key ? createApnsPush(key, topic, process.env.APNS_HOST || undefined) : null };
+    return cached.push;
+  };
+}
+
 /** The APNs key secret holds `{keyId, teamId, p8}`; `{}` until the deploy workflow fills it. */
 export async function loadApnsKey(secretId: string, client = new SecretsManagerClient({})): Promise<ApnsKey | null> {
   const res = await client.send(new GetSecretValueCommand({ SecretId: secretId }));

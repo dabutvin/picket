@@ -4,8 +4,7 @@ import { env, lightroomConfigFromEnv } from './config.js';
 import { createStore } from './store.js';
 import { createReceiverCloud, createReceiverService } from './receiver.js';
 import { createPairingStore } from './pairing.js';
-import { createDynamoDeviceStore, createNotificationService } from './notifications.js';
-import { cachedPush } from './notifier.js';
+import { cachedPush, createDynamoDeviceStore, createNotificationService } from './notifications.js';
 
 export const handler = createApp({
   store: createStore({
