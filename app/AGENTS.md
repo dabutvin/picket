@@ -105,10 +105,11 @@ calls `needUrls()`, which re-signs it through `/photos/urls`. The screenshot scr
 path with `?expired-urls` (sample mode hands Skipped dead thumbnail URLs). Persistence is native
 only; the web build and sample-photos mode keep the cache in memory.
 
-Conventions for the UI itself: dark theme only, the four semantic colors in
-`src/lib/theme.ts` (`pick` green, `reject` red, `accent` blue, `muted` grey), `Button` for
-every action (`variant="filled"` for the one main action on a screen, the default tinted
-style for the rest), Ionicons from `@expo/vector-icons` for icons, grid screens share `src/screens/PhotoGrid.tsx`, and the API's `reject` is shown
+Conventions for the UI itself: dark theme only, the semantic colors in
+`src/lib/theme.ts` (`accent` violet for picks, the main action and done states; `danger` rose only for errors,
+failed uploads and destructive actions; skip is neutral `muted`; the greys lean slightly violet, and `raised` is the surface for buttons and controls; no hardcoded colors), `Button` for
+every action (`variant="filled"` for the one main action on a screen; the default is a `raised`
+surface with the label in the color, since a wash of color over near-black looks muddy), Ionicons from `@expo/vector-icons` for icons, grid screens share `src/screens/PhotoGrid.tsx`, and the API's `reject` is shown
 as "Skip"/"Skipped" because nothing is ever deleted. The product flow (ADR-008 in
 `docs/DECISIONS.md`): Review is a first triage (flick up = pick, down = skip, left/right
 browse), Picks is a staging area where nothing uploads until **Send to Lightroom**, Sent is

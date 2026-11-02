@@ -104,10 +104,10 @@ export function ReviewCard({ photo, active, onDecision, commandRef, onZoomChange
         <ZoomableImage uri={photo.previewUrl} placeholder={photo.thumbUrl} style={styles.image} onZoomChange={zoomChanged} onPinchOut={active ? onPinchOut : undefined} testID={active ? 'review-image' : undefined} />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.dim, dim]} />
         <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampTop, pickStamp]}>
-          <Text style={[styles.stampText, { color: colors.pick }]}>PICK</Text>
+          <Text style={[styles.stampText, { color: colors.accent }]}>PICK</Text>
         </Animated.View>
         <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampBottom, skipStamp]}>
-          <Text style={[styles.stampText, { color: colors.reject }]}>SKIP</Text>
+          <Text style={[styles.stampText, { color: colors.text }]}>SKIP</Text>
         </Animated.View>
         <View style={styles.meta}>
           <View style={styles.metaRow}>
@@ -141,8 +141,8 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  stampTop: { top: 28, borderColor: colors.pick },
-  stampBottom: { bottom: 84, borderColor: colors.reject },
+  stampTop: { top: 28, borderColor: colors.accent },
+  stampBottom: { bottom: 84, borderColor: colors.text },
   stampText: { fontSize: 30, fontWeight: '800', letterSpacing: 3 },
   meta: { padding: 12, backgroundColor: 'rgba(0,0,0,0.6)', gap: 2 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },

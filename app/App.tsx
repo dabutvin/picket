@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.bg,
   },
-  badgeAlert: { backgroundColor: colors.reject },
+  badgeAlert: { backgroundColor: colors.danger },
   badgeText: { color: colors.onFill, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'] },
   tabText: { fontWeight: '600', fontSize: 11 },
   tabDisabled: { opacity: 0.4 },

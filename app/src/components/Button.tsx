@@ -1,10 +1,11 @@
 import { Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
-import { colors, tint } from '../lib/theme';
+import { colors } from '../lib/theme';
 
 /**
  * - `filled`: the one main action on a screen (solid colour, dark text).
- * - `tinted` (default): everything else; a soft wash of the colour. Grey (`colors.muted`)
- *   keeps light text so a secondary button never reads as disabled.
+ * - `tinted` (default): everything else; a raised neutral surface with the label in the colour.
+ *   (A wash of red or green over near-black turns muddy, so the colour stays in the label.)
+ *   Grey (`colors.muted`) keeps light text so a secondary button never reads as disabled.
  */
 export type ButtonVariant = 'filled' | 'tinted';
 
@@ -21,7 +22,7 @@ interface Props {
 export function Button({ title, onPress, color = colors.accent, variant = 'tinted', disabled, style, testID }: Props) {
   const filled = variant === 'filled';
   const grey = color === colors.muted;
-  const background = filled ? color : tint(color, grey ? 0.22 : 0.16);
+  const background = filled ? color : colors.raised;
   const text = filled ? colors.onFill : grey ? colors.text : color;
   return (
     <Pressable

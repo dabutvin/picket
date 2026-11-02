@@ -144,7 +144,7 @@ await settle(1500);
 await shot('08-library-skipped', 'Library → Skipped');
 await byId('grid-collapse-all').click();
 await settle(500);
-if (!(await page.getByText('Expand all', { exact: true }).isVisible())) throw new Error('Collapse all did not collapse every day');
+if (!(await page.getByLabel('Expand all days').isVisible())) throw new Error('Collapse all did not collapse every day');
 await shot('08a-library-skipped-collapsed', 'Library → Skipped: Collapse all (just the days and their counts)');
 await byId('grid-collapse-all').click(); // Expand all
 await settle(500);

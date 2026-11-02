@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import type { Api } from '../lib/api';
 import type { Photo, Stats } from '../lib/types';
 import { colors } from '../lib/theme';
@@ -184,7 +185,12 @@ export function ReviewScreen({ api }: { api: Api }) {
         </View>
         <Pressable onPress={() => setGrid(true)} disabled={!queue.length} hitSlop={8} style={styles.jump} testID="review-grid">
           <Text style={styles.position}>{position}</Text>
-          {queue.length > 0 && <Text style={styles.jumpLabel}>▦ Jump to</Text>}
+          {queue.length > 0 && (
+            <View style={styles.jumpRow}>
+              <Ionicons name="grid-outline" size={13} color={colors.accent} />
+              <Text style={styles.jumpLabel}>Jump to</Text>
+            </View>
+          )}
         </Pressable>
       </View>
 
@@ -210,9 +216,9 @@ export function ReviewScreen({ api }: { api: Api }) {
       {decided === 0 && queue.length > 0 && <Text style={styles.hint}>Flick up to pick, down to skip. Swipe sideways to look around. Pinch or double-tap to zoom; pinch in for the grid.</Text>}
 
       <View style={styles.actions}>
-        <Button title="↓ Skip" color={colors.reject} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
+        <Button title="↓ Skip" color={colors.muted} onPress={() => command.current?.('reject')} disabled={!current} style={styles.action} />
         <Button title="Undo" color={colors.muted} onPress={undo} disabled={!last} />
-        <Button title="↑ Pick" color={colors.pick} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
+        <Button title="↑ Pick" color={colors.accent} onPress={() => command.current?.('pick')} disabled={!current} style={styles.action} />
       </View>
 
       {grid && (
@@ -240,7 +246,8 @@ const styles = StyleSheet.create({
   subtitle: { color: colors.muted, fontSize: 12, marginTop: 2 },
   jump: { alignItems: 'flex-end', paddingBottom: 3 },
   position: { color: colors.muted, fontVariant: ['tabular-nums'] },
-  jumpLabel: { color: colors.accent, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  jumpRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  jumpLabel: { color: colors.accent, fontSize: 12, fontWeight: '600' },
   hint: { color: colors.muted, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 },
   actions: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 16 },
   action: { flex: 1 },

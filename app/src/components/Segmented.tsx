@@ -34,7 +34,7 @@ export function Segmented<K extends string>({ options, value, onChange, testIDPr
 const styles = StyleSheet.create({
   track: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 10, padding: 3, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   seg: { flex: 1, paddingVertical: 7, alignItems: 'center', borderRadius: 8 },
-  segOn: { backgroundColor: '#2c2c33' },
+  segOn: { backgroundColor: colors.raised },
   label: { color: colors.muted, fontWeight: '600', fontSize: 13 },
   labelOn: { color: colors.text },
 });

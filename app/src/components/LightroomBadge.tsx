@@ -13,9 +13,9 @@ const LABEL: Record<LightroomInfo['status'], string> = {
 const COLOR: Record<LightroomInfo['status'], string> = {
   queued: colors.muted,
   uploading: colors.accent,
-  done: colors.pick,
-  duplicate: colors.pick,
-  failed: colors.reject,
+  done: colors.accent,
+  duplicate: colors.accent,
+  failed: colors.danger,
 };
 
 /** Upload state of a pick. `compact` is the small pill on a grid thumbnail. */

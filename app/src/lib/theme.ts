@@ -1,16 +1,23 @@
 import { Platform } from 'react-native';
 
+/**
+ * One palette built around the violet accent; the greys lean slightly violet so every surface
+ * belongs with it. Violet is the only hue in ordinary use (picks, the main action, done states).
+ * `danger` is kept for errors, failed uploads and destructive actions; skipping is neutral grey.
+ */
 export const colors = {
-  bg: '#0b0b0d',
-  card: '#16161a',
-  text: '#f2f2f2',
-  muted: '#8a8a93',
-  pick: '#34c77b',
-  reject: '#ff6b5e',
-  accent: '#6aa6ff',
-  border: '#2a2a31',
-  /** Text on a filled accent/pick/reject button. */
-  onFill: '#0b0b0d',
+  bg: '#0d0c12',
+  card: '#17151f',
+  /** Buttons and controls that sit on `bg` or `card`; a step lighter than `card`. */
+  raised: '#24212f',
+  text: '#f4f2fa',
+  muted: '#9b97aa',
+  /** Errors, failed uploads, destructive actions. Nothing else. */
+  danger: '#fb7185',
+  accent: '#a78bfa',
+  border: '#2c2939',
+  /** Text on a filled accent button. */
+  onFill: '#140f22',
 } as const;
 
 /** A 6-digit hex colour at the given opacity (8-digit hex works on iOS, Android and web). */
