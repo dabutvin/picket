@@ -232,7 +232,9 @@ async function ensure({ type }) {
     bundle = (await asc.call('POST', '/bundleIds', { data: { type: 'bundleIds', attributes: { identifier: bundleId, name: appName, platform: 'IOS' } } })).data;
     report.bundleIdCreated = true;
   }
-  const enabled = new Set((await asc.list(`/bundleIds/${bundle.id}/bundleIdCapabilities`)).map((c) => c.attributes.capabilityType));
+  // A relationship endpoint: it rejects `limit` (so not asc.list), and a bundle id has only a few capabilities.
+  const capabilities = (await asc.call('GET', `/bundleIds/${bundle.id}/bundleIdCapabilities`)).data ?? [];
+  const enabled = new Set(capabilities.map((c) => c.attributes.capabilityType));
   for (const capabilityType of CAPABILITIES) {
     if (enabled.has(capabilityType)) continue;
     log(`enabling ${capabilityType} on ${bundleId}`);
