@@ -16,20 +16,10 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { env } from './config.js';
 import { createStore } from './store.js';
-import { QUIET_MS, backlogUploads, createApnsPush, createDynamoDeviceStore, loadApnsKey, onQuiet, onReminderTick, onUploads, type NotifierDeps, type PushFn } from './notifications.js';
+// Never import this module from the API: its handler below reads the notifier's own environment
+// (QUIET_QUEUE_URL, ...) at load time. Shared code lives in notifications.ts.
+import { QUIET_MS, backlogUploads, cachedPush, createDynamoDeviceStore, onQuiet, onReminderTick, onUploads, type NotifierDeps } from './notifications.js';
 import type { PhotoItem } from './types.js';
-
-/** The APNs key, re-read now and then so a key added by a later deploy is picked up by a warm container. */
-export function cachedPush(secretId: string | undefined, topic: string, ttlMs = 5 * 60_000): () => Promise<PushFn | null> {
-  let cached: { at: number; push: PushFn | null } | undefined;
-  return async () => {
-    if (!secretId) return null;
-    if (cached && Date.now() - cached.at < ttlMs) return cached.push;
-    const key = await loadApnsKey(secretId);
-    cached = { at: Date.now(), push: key ? createApnsPush(key, topic, process.env.APNS_HOST || undefined) : null };
-    return cached.push;
-  };
-}
 
 /**
  * uploadedAt of each newly inserted photo in a stream batch that counts: re-sent frames are MODIFY
