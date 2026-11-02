@@ -76,6 +76,10 @@
     "caption": "Settings: new-photo notifications on, after sending a test (sample-photos mode)"
   },
   {
+    "file": "09c-settings-reminder-off.png",
+    "caption": "Settings: weekly review reminder turned off for this phone"
+  },
+  {
     "file": "10-settings-lower.png",
     "caption": "Settings, scrolled: Lightroom and the Picket API"
   },
