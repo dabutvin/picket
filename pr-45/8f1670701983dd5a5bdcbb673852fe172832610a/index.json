@@ -1,0 +1,90 @@
+[
+  {
+    "file": "01-review.png",
+    "caption": "Review: the carousel, first photo"
+  },
+  {
+    "file": "01b-review-zoomed.png",
+    "caption": "Review: double-tapped to zoom (pinch works too; one finger pans while zoomed)"
+  },
+  {
+    "file": "01c-review-pinched-to-grid.png",
+    "caption": "Review: pinched in on the photo, the Jump-to grid opened"
+  },
+  {
+    "file": "02-review-after-pick.png",
+    "caption": "Review: after flicking one up (next photo slid in, Undo enabled)"
+  },
+  {
+    "file": "02b-review-jump-grid.png",
+    "caption": "Review: \"Jump to\" grid of the queue by day (current photo outlined)"
+  },
+  {
+    "file": "02c-review-after-jump.png",
+    "caption": "Review: after tapping a photo in the grid (position jumped)"
+  },
+  {
+    "file": "02d-review-after-skipping-last.png",
+    "caption": "Review: skipped the last photo, the one before it slid in"
+  },
+  {
+    "file": "03-picks.png",
+    "caption": "Picks: by capture day, one failed upload"
+  },
+  {
+    "file": "03b-picks-collapsed.png",
+    "caption": "Picks: a day collapsed"
+  },
+  {
+    "file": "04-picks-select.png",
+    "caption": "Picks: selecting a whole day (or single photos) to send or skip"
+  },
+  {
+    "file": "05-picks-detail-failed.png",
+    "caption": "Picks: detail view of a failed upload"
+  },
+  {
+    "file": "06-picks-sending.png",
+    "caption": "Picks: the instant after Send all (queued at once, progress line)"
+  },
+  {
+    "file": "06b-picks-uploading.png",
+    "caption": "Picks: a moment later (uploading, with spinners)"
+  },
+  {
+    "file": "06c-picks-sent.png",
+    "caption": "Picks: everything sent (notice stays a few seconds)"
+  },
+  {
+    "file": "07-library-sent.png",
+    "caption": "Library → Sent: everything Lightroom has"
+  },
+  {
+    "file": "08-library-skipped.png",
+    "caption": "Library → Skipped"
+  },
+  {
+    "file": "08a-library-skipped-collapsed.png",
+    "caption": "Library → Skipped: Collapse all (just the days and their counts)"
+  },
+  {
+    "file": "09-settings.png",
+    "caption": "Settings: camera / receiver settings at the top (sample-photos mode)"
+  },
+  {
+    "file": "09b-settings-notifications.png",
+    "caption": "Settings: new-photo notifications on, after sending a test (sample-photos mode)"
+  },
+  {
+    "file": "09c-settings-reminder-off.png",
+    "caption": "Settings: weekly review reminder turned off for this phone"
+  },
+  {
+    "file": "10-settings-lower.png",
+    "caption": "Settings, scrolled: Lightroom and the Picket API"
+  },
+  {
+    "file": "08b-skipped-urls-refreshed.png",
+    "caption": "Library → Skipped: thumbnails whose signed URLs had expired, re-signed on demand and loaded"
+  }
+]
