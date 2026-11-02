@@ -8,6 +8,8 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { DynamoEventSource, SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
+import * as schedulerTargets from 'aws-cdk-lib/aws-scheduler-targets';
 import { Construct } from 'constructs';
 
 export interface NotificationsProps {
@@ -16,6 +18,8 @@ export interface NotificationsProps {
   table: dynamodb.Table;
   /** The iOS bundle id: the APNs topic every push is addressed to. */
   bundleId: string;
+  /** When the weekly "photos waiting to review" reminder goes out. */
+  reminder?: { timeZone: string; weekDay: string; hour: number };
 }
 
 const API_DIR = path.join(__dirname, '..', '..', 'services', 'api');
@@ -96,5 +100,14 @@ export class Notifications extends Construct {
       }),
     );
     this.notifier.addEventSource(new SqsEventSource(this.quietQueue, { batchSize: 10 }));
+
+    // Weekly nudge about the Review backlog (sent only if something is waiting). Local time, so it
+    // stays put across daylight saving.
+    const r = props.reminder ?? { timeZone: 'America/New_York', weekDay: 'SUN', hour: 18 };
+    new scheduler.Schedule(this, 'WeeklyReminder', {
+      schedule: scheduler.ScheduleExpression.cron({ weekDay: r.weekDay, hour: String(r.hour), minute: '0', timeZone: cdk.TimeZone.of(r.timeZone) }),
+      target: new schedulerTargets.LambdaInvoke(this.notifier, { input: scheduler.ScheduleTargetInput.fromObject({ kind: 'reminder' }), retryAttempts: 2 }),
+      description: 'Picket: weekly "photos waiting to review" push',
+    });
   }
 }

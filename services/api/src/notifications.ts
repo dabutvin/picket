@@ -373,6 +373,26 @@ export async function onQuiet(lastUploadAt: string, { store, devices, push, log 
   return { done: true as const, count: closed.count, ...sent };
 }
 
+/** The weekly nudge: only when something is waiting, and it says how much. */
+export function reminderPayload(unreviewed: number): ApnsPayload {
+  return {
+    aps: {
+      alert: { title: 'Picket', body: `${plural(unreviewed, 'photo')} waiting to review.` },
+      badge: unreviewed,
+      sound: 'default',
+      'thread-id': 'reminder',
+    },
+    kind: 'reminder',
+  };
+}
+
+/** Weekly (EventBridge Scheduler): remind every phone of the Review backlog, if there is one. */
+export async function onReminder({ store, devices, push, log = console.log }: NotifierDeps) {
+  const unreviewed = await store.countByStatus('unreviewed');
+  if (unreviewed === 0 || !push) return { sent: false as const, unreviewed };
+  return { sent: true as const, unreviewed, ...(await deliver(devices, push, reminderPayload(unreviewed), log)) };
+}
+
 /** What the API's routes need: register a phone, forget one, send a test push. */
 export interface NotificationService {
   configured(): Promise<boolean>;

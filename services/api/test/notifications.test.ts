@@ -19,7 +19,9 @@ import {
   isDeviceToken,
   onQuiet,
   onUploads,
+  onReminder,
   pushResult,
+  reminderPayload,
   syncingPayload,
   type PushFn,
 } from '../src/notifications.js';
@@ -143,6 +145,33 @@ describe('live transfer does not count', () => {
     expect(devices.burst).toBeUndefined();
     await handle({ Records: [insertOf('2026-11-01T02:00:00', at(0))] } as unknown as DynamoDBStreamEvent);
     expect(push).toHaveBeenCalledWith([TOKEN_A], syncingPayload());
+  });
+});
+
+describe('weekly reminder', () => {
+  it('reminds every phone of the Review backlog with the count and badge', async () => {
+    const push = okPush();
+    // fakeStore counts 5 unreviewed.
+    const out = await onReminder({ store: fakeStore(), devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet });
+    expect(out).toMatchObject({ sent: true, unreviewed: 5, delivered: 1 });
+    expect(push).toHaveBeenCalledWith([TOKEN_A], reminderPayload(5));
+    expect(reminderPayload(5).aps).toMatchObject({ alert: { body: '5 photos waiting to review.' }, badge: 5 });
+    expect(reminderPayload(1).aps.alert?.body).toBe('1 photo waiting to review.');
+  });
+
+  it('says nothing when Review is empty', async () => {
+    const store = fakeStore();
+    store.countByStatus = vi.fn(async () => 0);
+    const push = okPush();
+    expect(await onReminder({ store, devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet })).toEqual({ sent: false, unreviewed: 0 });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('the handler routes the schedule event to it', async () => {
+    const push = okPush();
+    const handle = createNotifierHandler(async () => ({ store: fakeStore(), devices: createMemoryDeviceStore([phone]), push, later: later(), log: quiet }));
+    await handle({ kind: 'reminder' });
+    expect(push.mock.calls[0]![1].kind).toBe('reminder');
   });
 });
 

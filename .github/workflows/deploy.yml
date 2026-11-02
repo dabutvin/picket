@@ -27,6 +27,10 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   STACK: Picket
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME || 'picket.photos' }}
+  # Weekly "photos waiting to review" push (infra/bin/picket.ts defaults: America/New_York, SUN, 18).
+  PICKET_REMINDER_TZ: ${{ vars.REMINDER_TIME_ZONE }}
+  PICKET_REMINDER_DAY: ${{ vars.REMINDER_DAY }}
+  PICKET_REMINDER_HOUR: ${{ vars.REMINDER_HOUR }}
 
 jobs:
   deploy:
