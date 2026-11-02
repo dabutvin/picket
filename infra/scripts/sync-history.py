@@ -58,11 +58,13 @@ def main():
     items = raw.get("Items", raw)
     up = []
     lag = []
+    caps = []
     for it in items:
         u = parse((it.get("uploadedAt") or {}).get("S") if isinstance(it.get("uploadedAt"), dict) else it.get("uploadedAt"))
         c_raw = (it.get("capturedAt") or {}).get("S") if isinstance(it.get("capturedAt"), dict) else it.get("capturedAt")
         if u:
             up.append(u)
+        caps.append(c_raw)
         c = parse(c_raw)
         if u and c and c_raw and not c_raw.endswith("Z") and "+" not in c_raw[10:]:
             # capturedAt is camera-local time without a zone: report the raw difference, it includes the UTC offset.
@@ -117,6 +119,37 @@ def main():
         rows.append(f"| {b[0].strftime('%m-%d %H:%M:%S')} | {b[-1].strftime('%H:%M:%S')} | {len(b)} | {fmt_s((b[-1] - b[0]).total_seconds())} | {fmt_s(before)} |")
     print("\n".join(rows[-40:]))
     print()
+    # Shooting rhythm: with live auto-transfer, uploads follow capture, so capture gaps predict how
+    # bursts would split during a shoot (camera-local time; only the gaps matter).
+    cap = sorted(t for t in (parse(x) for x in caps) if t)
+    if len(cap) > 1:
+        cg = [(b - a).total_seconds() for a, b in zip(cap, cap[1:])]
+        print(f"## Shooting rhythm: {len(cap)} capture times, {cap[0].date()} .. {cap[-1].date()}")
+        print("Gap between consecutive shots:")
+        print("| p50 | p75 | p90 | p95 | p99 |")
+        print("|---|---|---|---|---|")
+        print("| " + " | ".join(fmt_s(pct(cg, p)) for p in [50, 75, 90, 95, 99]) + " |\n")
+        print("Gaps by size:")
+        prev = 0
+        for e in [10, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 3600, 7200]:
+            print(f"- {fmt_s(prev)}–{fmt_s(e)}: {sum(1 for g in cg if prev < g <= e)}")
+            prev = e
+        print(f"- >{fmt_s(prev)}: {sum(1 for g in cg if g > prev)}\n")
+        print("| quiet | shooting bursts | of 1 photo | of ≤3 photos | median size | median duration | max duration |")
+        print("|---|---|---|---|---|---|---|")
+        for q in QUIETS_MIN:
+            bs = bursts(cap, q * 60)
+            sizes = [len(b) for b in bs]
+            durs = [(b[-1] - b[0]).total_seconds() for b in bs]
+            print(f"| {q}m | {len(bs)} | {sum(1 for x in sizes if x == 1)} | {sum(1 for x in sizes if x <= 3)} | {pct(sizes, 50)} | {fmt_s(pct(durs, 50))} | {fmt_s(max(durs))} |")
+        days = defaultdict(list)
+        for t in cap:
+            days[t.date()].append(t)
+        print(f"\nShooting days: {len(days)}; bursts per day at 5 / 10 / 20 / 30 min:")
+        for d in sorted(days):
+            ts = days[d]
+            print(f"- {d}: {len(ts)} shots, {ts[0].strftime('%H:%M')}–{ts[-1].strftime('%H:%M')}, " + " / ".join(str(len(bursts(ts, q * 60))) for q in (5, 10, 20, 30)))
+        print()
     if lag:
         print("## uploadedAt − capturedAt (raw; includes the camera's UTC offset)")
         print("| p10 | p50 | p90 |")
