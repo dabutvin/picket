@@ -9,6 +9,7 @@ import { captureTime, exifLine, megabytes } from '../lib/format';
 import { chunk, groupByDay } from '../lib/days';
 import { EXPORT_NOTE, saveToPhotos, sharePreview } from '../lib/export';
 import { withRecent } from '../lib/recent';
+import { useTabReselect } from '../lib/tabReselect';
 import { hydrate, imageKey, needUrls, patch, peek, refresh, refreshSoon, subscribe, type Snapshot } from '../lib/photoStore';
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
@@ -180,6 +181,14 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
     setSelecting(false);
     setPicked(new Set());
   };
+
+  // Tapping this tab again: close the open photo, else leave selection mode, else scroll to the top.
+  const list = useRef<FlatList<Row>>(null);
+  useTabReselect(status === 'pick' ? 'picks' : 'library', () => {
+    if (selected) setSelected(null);
+    else if (selecting) endSelecting();
+    else list.current?.scrollToOffset({ offset: 0, animated: true });
+  });
   const toggle = (id: string) =>
     setPicked((s) => {
       const next = new Set(s);
@@ -312,6 +321,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       </View>
       {headerExtra}
       <FlatList
+        ref={list}
         data={rows}
         keyExtractor={(r) => r.key}
         contentContainerStyle={styles.list}

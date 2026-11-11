@@ -10,6 +10,7 @@ import { Button } from '../components/Button';
 import { Carousel } from '../components/Carousel';
 import { ReviewCard, type CardDecision } from '../components/ReviewCard';
 import { QueueGrid } from '../components/QueueGrid';
+import { useTabReselect } from '../lib/tabReselect';
 
 const PAGE = 30;
 const REFILL_AT = 8;
@@ -33,6 +34,8 @@ export function ReviewScreen({ api }: { api: Api }) {
   /** Unreviewed photos per the API, kept current between fetches by this screen's own decisions. */
   const [remaining, setRemaining] = useState<number | null>(null);
   const [grid, setGrid] = useState(false);
+  // Tapping Review again closes the Jump-to grid.
+  useTabReselect('review', () => setGrid(false));
   const [zoomed, setZoomed] = useState(false);
   const command = useRef<((d: CardDecision) => void) | null>(null);
   const loadingRef = useRef(false);

@@ -128,7 +128,11 @@ await byId('grid-select').click(); // Done
 await byId('thumb-demo-13').click();
 await settle(1200);
 await shot('05-picks-detail-failed', 'Picks: detail view of a failed upload');
-await byId('detail-close').click();
+// Tapping Picks again (the tab already open) goes back to the full grid.
+await byId('tab-picks').click();
+await settle(600);
+if (await byId('detail-close').isVisible().catch(() => false)) throw new Error('tapping the Picks tab again did not close the photo');
+await shot('05b-picks-tab-retap', 'Picks: tapped the Picks tab again with a photo open, back to the full grid');
 await byId('picks-send-all').click();
 await settle(400);
 await shot('06-picks-sending', 'Picks: the instant after Send all (queued at once, progress line)');

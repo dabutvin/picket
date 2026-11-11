@@ -10,6 +10,7 @@ import { createApi, type Api } from './src/lib/api';
 import type { Stats } from './src/lib/types';
 import { createDemoApi } from './src/lib/demo';
 import { warm } from './src/lib/photoStore';
+import { reselectTab } from './src/lib/tabReselect';
 import { onNotificationOpened, registerForPush, setAppBadge, type PushState } from './src/lib/push';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { PicksScreen } from './src/screens/PicksScreen';
@@ -191,7 +192,8 @@ export default function App() {
               return (
                 <Pressable
                   key={t.key}
-                  onPress={() => setTab(t.key)}
+                  // Tapping the tab you're on takes it back to its top level (tabReselect.ts).
+                  onPress={() => (active ? reselectTab(t.key) : setTab(t.key))}
                   disabled={disabled}
                   style={[styles.tab, disabled && styles.tabDisabled]}
                   testID={`tab-${t.key}`}
