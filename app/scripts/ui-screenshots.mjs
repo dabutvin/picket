@@ -146,7 +146,11 @@ await settle(900);
 const after = await page.getByText(/^DSC\d+\.ARW$/).first().textContent();
 if (after === before) throw new Error(`Swiping left in the detail view did not move on from ${before}`);
 await shot('05b-picks-detail-swiped', `Picks: swiped left in the detail view, ${before} → ${after}`);
-await byId('detail-close').click();
+// Tapping Picks again (the tab already open) closes the photo and goes back to the full grid.
+await byId('tab-picks').click();
+await settle(600);
+if (await byId('detail-close').isVisible().catch(() => false)) throw new Error('tapping the Picks tab again did not close the photo');
+await shot('05c-picks-tab-retap', 'Picks: tapped the Picks tab again with a photo open, back to the full grid');
 await byId('picks-send-all').click();
 await settle(400);
 await shot('06-picks-sending', 'Picks: the instant after Send all (queued at once, progress line)');
