@@ -44,7 +44,11 @@
     "caption": "Picks: detail view of a failed upload"
   },
   {
-    "file": "05b-picks-tab-retap.png",
+    "file": "05b-picks-detail-swiped.png",
+    "caption": "Picks: swiped left in the detail view, DSC03813.ARW → DSC03814.ARW"
+  },
+  {
+    "file": "05c-picks-tab-retap.png",
     "caption": "Picks: tapped the Picks tab again with a photo open, back to the full grid"
   },
   {
@@ -70,6 +74,10 @@
   {
     "file": "08a-library-skipped-collapsed.png",
     "caption": "Library → Skipped: Collapse all (just the days and their counts)"
+  },
+  {
+    "file": "08c-library-skipped-detail.png",
+    "caption": "Library → Skipped: detail view (Make it a pick, Close)"
   },
   {
     "file": "09-settings.png",
