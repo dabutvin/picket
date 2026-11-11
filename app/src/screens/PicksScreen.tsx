@@ -86,11 +86,10 @@ export function PicksScreen({ api }: { api: Api }) {
 
   const skipPhotos = (photos: Photo[], helpers: GridHelpers, then: () => void) => {
     const ids = photos.map((p) => p.photoId);
-    Alert.alert(`Skip ${ids.length === 1 ? 'this photo' : `${ids.length} photos`}?`, 'They move to Skipped; nothing is deleted.', [
+    Alert.alert(`Move ${ids.length === 1 ? 'this photo' : `${ids.length} photos`} to Skipped?`, 'Nothing is deleted; you can make it a pick again from Library → Skipped.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Skip',
-        style: 'destructive',
+        text: 'Move',
         onPress: () => {
           photos.forEach((p) => noteDecision(p, 'reject'));
           helpers.removeMany(ids);
@@ -147,17 +146,19 @@ export function PicksScreen({ api }: { api: Api }) {
           return (
             <>
               {progress(items)}
-              <View style={styles.row}>
-                <Button title={`Skip ${selected.length || ''}`.trim()} color={colors.muted} disabled={busy || !selected.length} onPress={() => skipPhotos(selected, helpers, endSelecting)} />
-                <Button
-                  title={busy ? 'Sending…' : sendable.length ? `Send ${sendable.length} to Lightroom` : 'Select photos to send'}
-                  color={colors.accent}
-                  variant="filled"
-                  style={styles.grow}
-                  disabled={busy || !sendable.length}
-                  onPress={() => void sendPhotos(sendable, helpers).then(endSelecting)}
-                />
-              </View>
+              <Button
+                title={busy ? 'Sending…' : sendable.length ? `Send ${sendable.length} to Lightroom` : 'Select photos to send'}
+                color={colors.accent}
+                variant="filled"
+                disabled={busy || !sendable.length}
+                onPress={() => void sendPhotos(sendable, helpers).then(endSelecting)}
+              />
+              <Button
+                title={selected.length ? `Move ${selected.length} to Skipped` : 'Move to Skipped'}
+                color={colors.muted}
+                disabled={busy || !selected.length}
+                onPress={() => skipPhotos(selected, helpers, endSelecting)}
+              />
             </>
           );
         }
@@ -208,17 +209,7 @@ export function PicksScreen({ api }: { api: Api }) {
               testID="picks-send-one"
             />
             <View style={styles.row}>
-              <Button title="Skip" color={colors.muted} onPress={() => skipPhotos([photo], helpers, helpers.close)} />
-              <Button
-                title="Review again"
-                color={colors.muted}
-                style={styles.grow}
-                onPress={() => {
-                  noteDecision(photo, 'unreviewed');
-                  helpers.remove(photo.photoId);
-                  api.decide(photo.photoId, 'unreviewed').catch(fail('Could not update'));
-                }}
-              />
+              <Button title="Move to Skipped" color={colors.muted} style={styles.grow} onPress={() => skipPhotos([photo], helpers, helpers.close)} testID="picks-move-to-skipped" />
               <Button title="Close" color={colors.muted} onPress={helpers.close} testID="detail-close" />
             </View>
           </>

@@ -71,7 +71,8 @@ has no device either. So UI work follows a loop that needs neither:
    exits non-zero on any uncaught page error, so it is also the web smoke test. Its
    `pinch(testId, fromGap, toGap)` helper sends a real two-finger touch through the DevTools
    protocol, which gesture-handler's web build recognizes; use it for pinch flows and make a
-   missed result throw rather than warn.
+   missed result throw rather than warn. `swipe(testId, dx)` does the same with one finger (the
+   detail view's left/right paging is checked with it).
 4. **Open the PR and read its UI preview comment.** `.github/workflows/ui-preview.yml` runs
    the same export and script on every PR touching `app/`, pushes the images to the
    `ui-previews` branch (latest commit per PR) and posts one comment that updates on each
