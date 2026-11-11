@@ -11,7 +11,8 @@ interface Props<T> {
   index: number;
   onIndexChange: (index: number) => void;
   renderItem: (item: T, active: boolean) => ReactNode;
-  renderEnd: () => ReactNode;
+  /** An extra page after the last item (Review's end of the queue). Without it the pager stops at the last item. */
+  renderEnd?: () => ReactNode;
   /** Off while the photo in view is zoomed, so one finger pans the photo instead of browsing. */
   enabled?: boolean;
 }
@@ -21,7 +22,8 @@ const FLING_VELOCITY = 500;
 const NEIGHBOURS = 1;
 
 /**
- * A horizontal pager over the review queue: left and right look ahead and go back.
+ * A horizontal pager (the Review queue, and the detail view of the grid tabs): left and right
+ * look ahead and go back.
  * Pages sit at absolute offsets by index and the viewport scrolls over them, so removing
  * the page in view slides its neighbour into place (a layout transition) instead of
  * jumping. Only the page in view and its neighbours are mounted.
@@ -30,7 +32,7 @@ export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, re
   const { width } = useWindowDimensions();
   const offset = useSharedValue(index * width);
   const start = useSharedValue(0);
-  const lastIndex = items.length; // the end page
+  const lastIndex = renderEnd ? items.length : Math.max(0, items.length - 1); // the end page, or the last item
 
   // Programmatic moves (undo, reset, a jump from the grid, a rotation) and the rest position
   // after a gesture. Only neighbours are mounted, so anything further than a page lands at once.
@@ -74,7 +76,7 @@ export function Carousel<T>({ items, keyOf, index, onIndexChange, renderItem, re
     const item = items[i];
     pages.push(
       item === undefined
-        ? { key: '__end', i, node: renderEnd() }
+        ? { key: '__end', i, node: renderEnd?.() }
         : { key: keyOf(item), i, node: renderItem(item, i === index) },
     );
   }
