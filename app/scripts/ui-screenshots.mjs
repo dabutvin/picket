@@ -62,6 +62,18 @@ async function pinch(testId, fromGap, toGap, steps = 8) {
   }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
+/** A real one-finger horizontal swipe through the same protocol (negative dx swipes left, to the next photo). */
+async function swipe(testId, dx, steps = 10) {
+  const box = await byId(testId).boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 0 }] });
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / steps, y, id: 0 }] });
+    await page.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
 const settle = (ms) => page.waitForTimeout(ms);
 
 await page.goto(base, { waitUntil: 'networkidle' });
@@ -128,11 +140,17 @@ await byId('grid-select').click(); // Done
 await byId('thumb-demo-13').click();
 await settle(1200);
 await shot('05-picks-detail-failed', 'Picks: detail view of a failed upload');
-// Tapping Picks again (the tab already open) goes back to the full grid.
+const before = await page.getByText(/^DSC\d+\.ARW$/).first().textContent();
+await swipe('detail-image', -260);
+await settle(900);
+const after = await page.getByText(/^DSC\d+\.ARW$/).first().textContent();
+if (after === before) throw new Error(`Swiping left in the detail view did not move on from ${before}`);
+await shot('05b-picks-detail-swiped', `Picks: swiped left in the detail view, ${before} → ${after}`);
+// Tapping Picks again (the tab already open) closes the photo and goes back to the full grid.
 await byId('tab-picks').click();
 await settle(600);
 if (await byId('detail-close').isVisible().catch(() => false)) throw new Error('tapping the Picks tab again did not close the photo');
-await shot('05b-picks-tab-retap', 'Picks: tapped the Picks tab again with a photo open, back to the full grid');
+await shot('05c-picks-tab-retap', 'Picks: tapped the Picks tab again with a photo open, back to the full grid');
 await byId('picks-send-all').click();
 await settle(400);
 await shot('06-picks-sending', 'Picks: the instant after Send all (queued at once, progress line)');
@@ -152,6 +170,16 @@ if (!(await page.getByLabel('Expand all days').isVisible())) throw new Error('Co
 await shot('08a-library-skipped-collapsed', 'Library → Skipped: Collapse all (just the days and their counts)');
 await byId('grid-collapse-all').click(); // Expand all
 await settle(500);
+await page.locator('[data-testid^="thumb-"]').first().click();
+await settle(1200);
+await shot('08c-library-skipped-detail', 'Library → Skipped: detail view (Make it a pick, Close)');
+const skippedBefore = await page.getByText(/^DSC\d+\.ARW$/).first().textContent();
+await swipe('detail-image', -260);
+await settle(900);
+const skippedAfter = await page.getByText(/^DSC\d+\.ARW$/).first().textContent();
+if (skippedAfter === skippedBefore) throw new Error(`Swiping in the Skipped detail view did not move on from ${skippedBefore}`);
+await byId('detail-close').click();
+await settle(400);
 await byId('tab-settings').click();
 await settle(1200);
 await shot('09-settings', 'Settings: camera / receiver settings at the top (sample-photos mode)');

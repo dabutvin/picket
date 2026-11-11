@@ -31,16 +31,7 @@ export function SkippedScreen({ api, title = 'Skipped', headerExtra }: { api: Ap
               api.decide(photo.photoId, 'pick').catch(fail('Could not update'));
             }}
           />
-          <Button
-            title="Review again"
-            color={colors.muted}
-            onPress={() => {
-              noteDecision(photo, 'unreviewed');
-              remove(photo.photoId);
-              api.decide(photo.photoId, 'unreviewed').catch(fail('Could not update'));
-            }}
-          />
-          <Button title="Close" color={colors.muted} onPress={close} />
+          <Button title="Close" color={colors.muted} onPress={close} testID="detail-close" />
         </View>
       )}
     />

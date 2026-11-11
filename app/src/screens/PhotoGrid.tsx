@@ -14,6 +14,7 @@ import { hydrate, imageKey, needUrls, patch, peek, refresh, refreshSoon, subscri
 import { LightroomBadge } from '../components/LightroomBadge';
 import { Button } from '../components/Button';
 import { ZoomableImage } from '../components/ZoomableImage';
+import { Carousel } from '../components/Carousel';
 
 const COLUMNS = 3;
 const GAP = 6;
@@ -84,6 +85,8 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedByStatus.get(status) ?? new Set());
   const [exporting, setExporting] = useState<'save' | 'share' | 'saved' | null>(null);
+  /** The detail photo is zoomed: one finger pans it, so swiping to the next photo is off. */
+  const [detailZoomed, setDetailZoomed] = useState(false);
 
   const items = useMemo(() => withRecent(status, snap?.items ?? []), [snap, status]);
   const complete = snap?.complete ?? false;
@@ -171,6 +174,7 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
       close: () => {
         setSelected(null);
         setExporting(null);
+        setDetailZoomed(false);
       },
       reload: () => void syncNow(true),
     }),
@@ -222,6 +226,9 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
   const shown = selected ? (items.find((p) => p.photoId === selected.photoId) ?? selected) : null;
 
   const days = useMemo(() => groupByDay(items), [items]);
+  /** The detail view swipes through the tab in the grid's order (day by day, as the headers show). */
+  const order = useMemo(() => days.flatMap((g) => g.items), [days]);
+  const shownIndex = shown ? order.findIndex((p) => p.photoId === shown.photoId) : -1;
   // Any day open: the header collapses every day. All closed: it opens them again.
   const anyOpen = days.some((g) => !collapsed.has(g.key));
   const setAllCollapsed = (collapse: boolean) => {
@@ -343,7 +350,32 @@ export function PhotoGrid({ api, status, title, emptyText, renderActions, render
 
       {shown && (
         <View style={styles.sheet}>
-          <ZoomableImage uri={shown.previewUrl} cacheKey={imageKey(shown, 'preview')} onError={() => needUrls(api, shown)} placeholder={shown.thumbUrl} style={styles.sheetImage} testID="detail-image" />
+          <View style={styles.pager}>
+            <Carousel
+              items={shownIndex >= 0 ? order : [shown]}
+              keyOf={(p) => p.photoId}
+              index={Math.max(0, shownIndex)}
+              enabled={!detailZoomed}
+              onIndexChange={(i) => {
+                const next = order[i];
+                if (!next || next.photoId === shown.photoId) return;
+                setSelected(next);
+                setExporting(null);
+                setDetailZoomed(false);
+              }}
+              renderItem={(p, active) => (
+                <ZoomableImage
+                  uri={p.previewUrl}
+                  cacheKey={imageKey(p, 'preview')}
+                  onError={() => needUrls(api, p)}
+                  placeholder={p.thumbUrl}
+                  style={styles.sheetImage}
+                  onZoomChange={active ? setDetailZoomed : undefined}
+                  testID={active ? 'detail-image' : undefined}
+                />
+              )}
+            />
+          </View>
           <View style={styles.metaRow}>
             <View style={styles.metaText}>
               <Text style={styles.fileName}>{shown.fileName}</Text>
@@ -440,6 +472,8 @@ const styles = StyleSheet.create({
   empty: { color: colors.muted, textAlign: 'center', marginTop: 40, paddingHorizontal: 24, lineHeight: 20 },
   bar: { gap: 10 },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, backgroundColor: colors.bg, padding: 16, gap: 12 },
+  // Full width (out past the sheet's padding): the pager's pages are screen-wide and pad themselves.
+  pager: { flex: 1, marginHorizontal: -16 },
   sheetImage: { flex: 1, borderRadius: 12, backgroundColor: colors.card },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   metaText: { flex: 1, gap: 2 },
